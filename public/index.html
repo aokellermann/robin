@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rooms</title>
+<style>
+    :root {
+        --bg: #f6f5f2;
+        --panel: #ffffff;
+        --ink: #1c1b19;
+        --muted: #77746c;
+        --line: #e4e2dc;
+        --free-hover: #dcefe2;
+        --busy: #d9d5cc;
+        --busy-ink: #55524b;
+        --mine: #2f6f4f;
+        --mine-bg: #cfe8d8;
+        --accent: #2f6f4f;
+        --danger: #a33b2e;
+        --now: #c2542e;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #191816;
+            --panel: #211f1d;
+            --ink: #ece9e2;
+            --muted: #94908a;
+            --line: #35322e;
+            --free-hover: #24382c;
+            --busy: #3a3733;
+            --busy-ink: #b3afa7;
+            --mine: #7fc79e;
+            --mine-bg: #234534;
+            --accent: #7fc79e;
+            --danger: #e0705f;
+            --now: #e0764a;
+        }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+    }
+    button {
+        font: inherit;
+        color: inherit;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+    }
+    button:hover { border-color: var(--muted); }
+    button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--bg);
+        font-weight: 600;
+    }
+    button.danger { color: var(--danger); }
+    input, select {
+        font: inherit;
+        color: var(--ink);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+    }
+
+    /* login */
+    #login {
+        max-width: 320px;
+        margin: 18vh auto;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    #login h1 { font-size: 18px; margin: 0 0 6px; }
+    #login .err { color: var(--danger); min-height: 1.2em; margin: 0; }
+
+    /* app chrome */
+    #app { display: none; height: 100%; flex-direction: column; }
+    header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        flex-wrap: wrap;
+    }
+    header .title { font-weight: 700; margin-right: 8px; }
+    header .spacer { flex: 1; }
+    header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
+    header .who { color: var(--muted); font-size: 12px; }
+    #status { color: var(--muted); font-size: 12px; min-width: 70px; }
+
+    /* grid */
+    #gridwrap { flex: 1; overflow: auto; position: relative; }
+    table#grid { border-collapse: collapse; min-width: 100%; }
+    #grid th, #grid td { border: 1px solid var(--line); padding: 0; }
+    #grid thead th {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background: var(--panel);
+        font-weight: 500;
+        font-size: 11px;
+        color: var(--muted);
+        padding: 4px 2px;
+        min-width: 44px;
+    }
+    #grid td.room, #grid th.room {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        background: var(--panel);
+        text-align: left;
+        padding: 6px 10px;
+        white-space: nowrap;
+        min-width: 150px;
+    }
+    #grid thead th.room { z-index: 4; }
+    #grid td.room .cap { color: var(--muted); font-size: 11px; margin-left: 6px; }
+    #grid td.slot { height: 34px; cursor: pointer; position: relative; }
+    #grid td.slot:hover { background: var(--free-hover); }
+    #grid td.busy {
+        background: var(--busy);
+        cursor: default;
+        overflow: hidden;
+        font-size: 11px;
+        color: var(--busy-ink);
+        padding: 2px 4px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+    #grid td.busy.mine { background: var(--mine-bg); color: var(--mine); cursor: pointer; font-weight: 600; }
+    #grid td.past { opacity: 0.45; }
+    #grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
+    #grid th.hourstart, #grid td.hourstart { border-left: 2px solid var(--muted); }
+
+    /* popover */
+    #pop {
+        position: absolute;
+        z-index: 10;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        box-shadow: 0 8px 30px rgba(0,0,0,.25);
+        padding: 14px;
+        width: 260px;
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+    }
+    #pop .head { font-weight: 700; }
+    #pop .sub { color: var(--muted); font-size: 12px; }
+    #pop .row { display: flex; gap: 6px; }
+    #pop .row > * { flex: 1; }
+    #pop .err { color: var(--danger); font-size: 12px; min-height: 1em; margin: 0; }
+
+    #toast {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--ink);
+        color: var(--bg);
+        border-radius: 8px;
+        padding: 8px 16px;
+        display: none;
+        z-index: 20;
+    }
+</style>
+</head>
+<body>
+
+<div id="login">
+    <h1>Robin Rooms</h1>
+    <input id="l-email" type="email" placeholder="Email" autocomplete="username">
+    <input id="l-pass" type="password" placeholder="Robin password" autocomplete="current-password">
+    <p class="err" id="l-err"></p>
+    <button class="primary" id="l-go">Sign in</button>
+</div>
+
+<div id="app">
+    <header>
+        <span class="title">Rooms</span>
+        <button id="prev">‹</button>
+        <button id="today">Today</button>
+        <button id="next">›</button>
+        <span class="datelabel" id="datelabel"></span>
+        <select id="mincap">
+            <option value="0">Any size</option>
+            <option value="2">2+</option>
+            <option value="4">4+</option>
+            <option value="6">6+</option>
+            <option value="10">10+</option>
+        </select>
+        <span class="spacer"></span>
+        <span id="status"></span>
+        <button id="refresh">Refresh</button>
+        <span class="who" id="who"></span>
+        <button id="logout">Log out</button>
+    </header>
+    <div id="gridwrap">
+        <table id="grid"></table>
+        <div id="pop"></div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const API = "https://api.robinpowered.com/v1.0";
+const ORG_ID = 0; // your Robin org id
+const LOCATION_ID = 0; // your Robin location id
+const TZ = "America/Los_Angeles";
+const DAY_START = 8;   // 8:00
+const DAY_END = 19;    // 19:00
+const STEP_MIN = 15;
+const SLOTS = (DAY_END - DAY_START) * 60 / STEP_MIN;
+
+const $ = (id) => document.getElementById(id);
+let auth = null;        // {token, email, account_id, expire_at}
+let spaces = [];        // bookable spaces
+let day = startOfToday();
+let events = new Map(); // space id -> [{startMin, endMin, title, id, mine}]
+let fetchSeq = 0;
+
+function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+
+function loadAuth() {
+    try {
+        const a = JSON.parse(localStorage.getItem("robin.auth"));
+        if (a && new Date(a.expire_at) > new Date()) return a;
+    } catch {}
+    return null;
+}
+
+async function robin(path, opts = {}) {
+    const res = await fetch(API + path, {
+        ...opts,
+        headers: {
+            "Authorization": "Access-Token " + auth.token,
+            "Tenant-Id": String(ORG_ID),
+            ...(opts.body ? { "Content-Type": "application/json" } : {}),
+            ...(opts.headers || {}),
+        },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.status === 401) { logout(); throw new Error("Session expired — sign in again"); }
+    if (!res.ok) throw new Error(json.meta?.message || res.status + " error");
+    return json;
+}
+
+// ---------- login ----------
+$("l-go").onclick = doLogin;
+$("l-pass").onkeydown = (e) => { if (e.key === "Enter") doLogin(); };
+async function doLogin() {
+    const email = $("l-email").value.trim(), pass = $("l-pass").value;
+    $("l-err").textContent = "";
+    if (!email || !pass) return;
+    $("l-go").disabled = true;
+    try {
+        const res = await fetch(API + "/auth/users", {
+            method: "POST",
+            headers: {
+                "Authorization": "Basic " + btoa(email + ":" + pass),
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ remember_me: true, organization: ORG_ID }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.meta?.message || "Login failed");
+        auth = {
+            token: json.data.access_token,
+            account_id: json.data.account_id,
+            expire_at: json.data.expire_at,
+            email,
+        };
+        localStorage.setItem("robin.auth", JSON.stringify(auth));
+        start();
+    } catch (e) {
+        $("l-err").textContent = e.message;
+    } finally {
+        $("l-go").disabled = false;
+    }
+}
+
+function logout() {
+    localStorage.removeItem("robin.auth");
+    auth = null;
+    $("app").style.display = "none";
+    $("login").style.display = "flex";
+}
+
+// ---------- data ----------
+async function loadSpaces() {
+    const cached = localStorage.getItem("robin.spaces");
+    if (cached) {
+        try { spaces = JSON.parse(cached); } catch {}
+    }
+    if (spaces.length) refreshSpacesInBackground();
+    else spaces = await fetchSpaces();
+}
+async function fetchSpaces() {
+    const json = await robin(`/locations/${LOCATION_ID}/spaces?per_page=200&include=calendar`);
+    const list = json.data
+        .filter((s) => (s.behaviors || []).includes("scheduling"))
+        .map((s) => ({
+            id: s.id,
+            name: s.name,
+            capacity: s.capacity,
+            type: s.type,
+            cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    localStorage.setItem("robin.spaces", JSON.stringify(list));
+    return list;
+}
+async function refreshSpacesInBackground() {
+    try {
+        const fresh = await fetchSpaces();
+        if (JSON.stringify(fresh) !== JSON.stringify(spaces)) { spaces = fresh; renderGrid(); loadDay(); }
+    } catch {}
+}
+
+function dayRange() {
+    const after = new Date(day); after.setHours(0, 0, 0, 0);
+    const before = new Date(day); before.setHours(23, 59, 0, 0);
+    return { after: isoLocal(after), before: isoLocal(before) };
+}
+
+async function loadDay() {
+    const seq = ++fetchSeq;
+    const { after, before } = dayRange();
+    const visible = visibleSpaces();
+    $("status").textContent = "Loading…";
+    let done = 0;
+    await Promise.all(visible.map(async (s) => {
+        try {
+            const json = await robin(`/spaces/${s.id}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
+            if (seq !== fetchSeq) return;
+            events.set(s.id, (json.data || []).map((e) => ({
+                id: e.id,
+                title: e.title || "Reserved",
+                startMin: minutesOfDay(e.start),
+                endMin: minutesOfDay(e.end),
+                mine: e.creator_id === auth.account_id || (e.creator_email && e.creator_email.toLowerCase() === auth.email.toLowerCase()),
+            })));
+            renderRow(s.id);
+        } catch (e) {
+            if (seq === fetchSeq) console.warn("events fetch failed for", s.name, e);
+        } finally {
+            done++;
+            if (seq === fetchSeq) $("status").textContent = done < visible.length ? `Loading ${done}/${visible.length}` : "";
+        }
+    }));
+}
+
+function minutesOfDay(t) {
+    const d = new Date(t.date_time);
+    const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+    return Math.round((d - dayStart) / 60000);
+}
+
+// ---------- rendering ----------
+function visibleSpaces() {
+    const minCap = +$("mincap").value;
+    return spaces.filter((s) => !minCap || (s.capacity || 0) >= minCap);
+}
+
+function slotLabel(i) {
+    const m = DAY_START * 60 + i * STEP_MIN;
+    const h = Math.floor(m / 60), min = m % 60;
+    if (min !== 0) return "";
+    const h12 = ((h + 11) % 12) + 1;
+    return h12 + (h < 12 ? "a" : "p");
+}
+
+function renderGrid() {
+    const grid = $("grid");
+    const visible = visibleSpaces();
+    let html = "<colgroup><col>";
+    const nowIdx = nowSlotIndex();
+    for (let i = 0; i < SLOTS; i++) html += `<col${i === nowIdx ? ' class="nowcol"' : ""}>`;
+    html += "</colgroup><thead><tr><th class='room'></th>";
+    for (let i = 0; i < SLOTS; i++) {
+        const lbl = slotLabel(i);
+        html += `<th${lbl ? ' class="hourstart"' : ""}>${lbl}</th>`;
+    }
+    html += "</tr></thead><tbody>";
+    for (const s of visible) {
+        html += `<tr data-space="${s.id}">` + rowCells(s) + "</tr>";
+    }
+    html += "</tbody>";
+    grid.innerHTML = html;
+    $("datelabel").textContent = day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function nowSlotIndex() {
+    const now = new Date();
+    if (now.toDateString() !== day.toDateString()) return -1;
+    const m = now.getHours() * 60 + now.getMinutes() - DAY_START * 60;
+    if (m < 0 || m >= SLOTS * STEP_MIN) return -1;
+    return Math.floor(m / STEP_MIN);
+}
+
+function rowCells(s) {
+    const evs = events.get(s.id) || [];
+    const now = new Date();
+    const isToday = now.toDateString() === day.toDateString();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let html = `<td class="room">${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span></td>`;
+    let i = 0;
+    while (i < SLOTS) {
+        const m0 = DAY_START * 60 + i * STEP_MIN;
+        const ev = evs.find((e) => e.startMin < m0 + STEP_MIN && e.endMin > m0);
+        if (ev) {
+            // span the busy block across its slots
+            const endSlot = Math.min(SLOTS, Math.ceil((ev.endMin - DAY_START * 60) / STEP_MIN));
+            const span = Math.max(1, endSlot - i);
+            const past = isToday && DAY_START * 60 + endSlot * STEP_MIN <= nowMin;
+            html += `<td class="slot busy${ev.mine ? " mine" : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}</td>`;
+            i = endSlot;
+        } else {
+            const past = isToday && m0 + STEP_MIN <= nowMin;
+            const hourstart = m0 % 60 === 0;
+            html += `<td class="slot${past ? " past" : ""}${hourstart ? " hourstart" : ""}" data-slot="${i}"></td>`;
+            i++;
+        }
+    }
+    return html;
+}
+
+function renderRow(spaceId) {
+    const tr = document.querySelector(`tr[data-space="${spaceId}"]`);
+    const s = spaces.find((x) => x.id === spaceId);
+    if (tr && s) tr.innerHTML = rowCells(s);
+}
+
+function esc(x) {
+    return String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------- interactions ----------
+$("grid").addEventListener("click", (e) => {
+    const td = e.target.closest("td");
+    if (!td) return;
+    const tr = td.closest("tr[data-space]");
+    if (!tr) return;
+    const spaceId = +tr.dataset.space;
+    if (td.dataset.slot !== undefined) openBookPop(td, spaceId, +td.dataset.slot);
+    else if (td.dataset.event && td.classList.contains("mine")) openEventPop(td, spaceId, td.dataset.event);
+});
+
+document.addEventListener("click", (e) => {
+    if (!e.target.closest("#pop") && !e.target.closest("td")) hidePop();
+});
+
+function positionPop(td) {
+    const pop = $("pop");
+    const wrap = $("gridwrap");
+    const r = td.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+    pop.style.display = "flex";
+    let left = r.left - w.left + wrap.scrollLeft;
+    left = Math.min(left, wrap.scrollLeft + wrap.clientWidth - 280);
+    pop.style.left = Math.max(0, left) + "px";
+    pop.style.top = (r.bottom - w.top + wrap.scrollTop + 4) + "px";
+}
+
+function hidePop() { $("pop").style.display = "none"; }
+
+function fmtTime(min) {
+    const h = Math.floor(min / 60), m = min % 60;
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`;
+}
+
+function openBookPop(td, spaceId, slot) {
+    const s = spaces.find((x) => x.id === spaceId);
+    if (!s.cal) { toast(s.name + " has no calendar — book via the Robin dashboard"); return; }
+    const startMin = DAY_START * 60 + slot * STEP_MIN;
+    const evs = events.get(spaceId) || [];
+    // max free duration from here
+    let maxEnd = DAY_END * 60;
+    for (const ev of evs) if (ev.startMin >= startMin) maxEnd = Math.min(maxEnd, ev.startMin);
+    const maxDur = maxEnd - startMin;
+    const durations = [15, 30, 45, 60, 90, 120].filter((d) => d <= maxDur);
+    if (!durations.length) return;
+    const pop = $("pop");
+    pop.innerHTML = `
+        <div class="head">${esc(s.name)}</div>
+        <div class="sub">${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${fmtTime(startMin)}</div>
+        <input id="p-title" placeholder="Title" value="Meeting">
+        <div class="row">
+            <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === 30 ? " selected" : ""}>${d} min</option>`).join("")}</select>
+            <button class="primary" id="p-book">Book</button>
+        </div>
+        <p class="err" id="p-err"></p>`;
+    positionPop(td);
+    $("p-title").select();
+    $("p-book").onclick = () => book(spaceId, startMin);
+    pop.onkeydown = (e) => { if (e.key === "Enter") book(spaceId, startMin); if (e.key === "Escape") hidePop(); };
+}
+
+async function book(spaceId, startMin) {
+    const dur = +$("p-dur").value;
+    const title = $("p-title").value.trim() || "Meeting";
+    const start = new Date(day); start.setHours(0, startMin, 0, 0);
+    const end = new Date(start.getTime() + dur * 60000);
+    $("p-book").disabled = true;
+    $("p-err").textContent = "";
+    try {
+        const s = spaces.find((x) => x.id === spaceId);
+        await robin(`/events`, {
+            method: "POST",
+            body: JSON.stringify({
+                title,
+                space_id: spaceId,
+                calendar_type: s.cal.type,
+                calendar_mailbox_address: s.cal.mailbox,
+                start: { date_time: isoLocal(start), time_zone: TZ },
+                end: { date_time: isoLocal(end), time_zone: TZ },
+            }),
+        });
+        hidePop();
+        toast(`Booked ${spaces.find((s) => s.id === spaceId).name} at ${fmtTime(startMin)}`);
+        reloadSpace(spaceId);
+    } catch (e) {
+        $("p-err").textContent = e.message;
+        $("p-book").disabled = false;
+    }
+}
+
+function openEventPop(td, spaceId, eventId) {
+    const ev = (events.get(spaceId) || []).find((e) => e.id === eventId);
+    if (!ev) return;
+    const pop = $("pop");
+    pop.innerHTML = `
+        <div class="head">${esc(ev.title)}</div>
+        <div class="sub">${fmtTime(ev.startMin)} – ${fmtTime(ev.endMin)}</div>
+        <button class="danger" id="p-del">Cancel booking</button>
+        <p class="err" id="p-err"></p>`;
+    positionPop(td);
+    $("p-del").onclick = async () => {
+        $("p-del").disabled = true;
+        try {
+            await robin(`/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+            hidePop();
+            toast("Booking cancelled");
+            reloadSpace(spaceId);
+        } catch (e) {
+            $("p-err").textContent = e.message;
+            $("p-del").disabled = false;
+        }
+    };
+}
+
+async function reloadSpace(spaceId) {
+    const { after, before } = dayRange();
+    try {
+        const json = await robin(`/spaces/${spaceId}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
+        events.set(spaceId, (json.data || []).map((e) => ({
+            id: e.id,
+            title: e.title || "Reserved",
+            startMin: minutesOfDay(e.start),
+            endMin: minutesOfDay(e.end),
+            mine: e.creator_id === auth.account_id || (e.creator_email && e.creator_email.toLowerCase() === auth.email.toLowerCase()),
+        })));
+        renderRow(spaceId);
+    } catch {}
+}
+
+function isoLocal(d) {
+    // ISO 8601 with local offset, e.g. 2026-09-02T13:30:00-07:00
+    const off = -d.getTimezoneOffset();
+    const sign = off >= 0 ? "+" : "-";
+    const p = (n) => String(Math.abs(n)).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00${sign}${p(Math.floor(Math.abs(off) / 60))}:${p(Math.abs(off) % 60)}`;
+}
+
+let toastTimer;
+function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.style.display = "none"), 2500);
+}
+
+// ---------- nav ----------
+function setDay(d) { day = d; hidePop(); renderGrid(); loadDay(); }
+$("prev").onclick = () => setDay(new Date(day.getTime() - 864e5));
+$("next").onclick = () => setDay(new Date(day.getTime() + 864e5));
+$("today").onclick = () => setDay(startOfToday());
+$("refresh").onclick = () => loadDay();
+$("mincap").onchange = () => { renderGrid(); loadDay(); };
+$("logout").onclick = logout;
+setInterval(() => { const tr = document.querySelector("tr[data-space]"); if (tr) renderGrid(); }, 60000);
+
+// ---------- boot ----------
+async function start() {
+    $("login").style.display = "none";
+    $("app").style.display = "flex";
+    $("who").textContent = auth.email;
+    await loadSpaces();
+    renderGrid();
+    loadDay();
+}
+auth = loadAuth();
+if (auth) start();
+</script>
+</body>
+</html>
