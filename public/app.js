@@ -210,6 +210,7 @@ async function loadDay(onlyMissing = false) {
             const json = await robin(`/spaces/${s.id}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
             if (seq !== fetchSeq) return;
             events.set(s.id, (json.data || []).map((e) => ({
+            desc: e.description || "",
                 id: e.id,
                 title: e.title || "Reserved",
                 startMin: minutesOfDay(e.start),
@@ -383,8 +384,8 @@ function positionPop(el) {
     const pop = $("pop");
     const r = el.getBoundingClientRect();
     pop.style.display = "flex";
-    pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 280)) + "px";
-    pop.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 260)) + "px";
+    pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 320)) + "px";
+    pop.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 300)) + "px";
 }
 
 function hidePop() { $("pop").style.display = "none"; }
@@ -393,6 +394,119 @@ function fmtTime(min) {
     const h = Math.floor(min / 60), m = min % 60;
     const h12 = ((h + 11) % 12) + 1;
     return `${h12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`;
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// chip-style attendee editor inside #p-att; returns {get} -> email list (null if a
+// half-typed entry is invalid)
+function initChips(initial) {
+    const box = $("p-att");
+    const input = $("p-att-in");
+    const emails = [...initial];
+    const render = () => {
+        for (const c of box.querySelectorAll(".chip")) c.remove();
+        for (const em of emails) {
+            const c = document.createElement("span");
+            c.className = "chip";
+            c.textContent = em;
+            const x = document.createElement("button");
+            x.type = "button";
+            x.textContent = "×";
+            x.onclick = () => { emails.splice(emails.indexOf(em), 1); render(); };
+            c.appendChild(x);
+            box.insertBefore(c, input);
+        }
+    };
+    const commit = () => {
+        const v = input.value.trim().replace(/,+$/, "");
+        if (!v) return true;
+        if (!EMAIL_RE.test(v)) { input.classList.add("bad"); return false; }
+        input.classList.remove("bad");
+        if (!emails.some((e) => e.toLowerCase() === v.toLowerCase())) { emails.push(v); render(); }
+        input.value = "";
+        return true;
+    };
+    input.onkeydown = (e) => {
+        e.stopPropagation(); // keep Enter from submitting the popover
+        if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(); }
+        else if (e.key === "Backspace" && !input.value && emails.length) { emails.pop(); render(); }
+        else input.classList.remove("bad");
+    };
+    input.onblur = commit;
+    box.onclick = (e) => { if (e.target === box) input.focus(); };
+    render();
+    return { get: () => (commit() ? [...emails] : null) };
+}
+
+const chipsHtml = '<div class="chips" id="p-att"><input id="p-att-in" placeholder="Add attendee…"></div>';
+
+function inviteesFrom(emails) {
+    return [auth.email, ...emails]
+        .filter((e, i, a) => a.findIndex((x) => x.toLowerCase() === e.toLowerCase()) === i)
+        .map((email) => ({ email }));
+}
+
+// ---------- recurrence controls ----------
+const FREQ_OPTS = [
+    ["FREQ=DAILY", "Daily"],
+    ["FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "Every weekday"],
+    ["FREQ=WEEKLY", "Weekly"],
+    ["FREQ=MONTHLY", "Monthly"],
+];
+
+function parseRule(rule) {
+    if (!rule) return {};
+    const parts = Object.fromEntries(rule.replace(/^RRULE:/, "").split(";").map((kv) => kv.split("=")));
+    let freq = "FREQ=" + parts.FREQ;
+    if (parts.BYDAY) freq += ";BYDAY=" + parts.BYDAY;
+    const until = parts.UNTIL ? `${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}` : null;
+    return { freq, count: parts.COUNT ? +parts.COUNT : null, until };
+}
+
+function recControlsHtml(rule, noneLabel) {
+    const r = parseRule(rule);
+    const known = !r.freq || FREQ_OPTS.some(([v]) => v === r.freq);
+    return `
+        <select id="p-rep" data-orig="${esc(rule || "")}">
+            <option value="">${noneLabel}</option>
+            ${FREQ_OPTS.map(([v, l]) => `<option value="${v}"${v === r.freq ? " selected" : ""}>${l}</option>`).join("")}
+            ${known ? "" : '<option value="__keep" selected>Custom rule (keep as is)</option>'}
+        </select>
+        <div class="row" id="p-repend"${r.freq && known ? "" : " hidden"}>
+            <select id="p-endkind">
+                <option value="count"${r.until ? "" : " selected"}>ends after</option>
+                <option value="until"${r.until ? " selected" : ""}>ends on</option>
+            </select>
+            <input id="p-count" type="number" min="2" max="52" value="${r.count || 4}"${r.until ? " hidden" : ""}>
+            <input id="p-until" type="date" value="${r.until || ""}"${r.until ? "" : " hidden"}>
+        </div>`;
+}
+
+function wireRecControls() {
+    $("p-rep").onchange = () => { $("p-repend").hidden = !$("p-rep").value || $("p-rep").value === "__keep"; };
+    $("p-endkind").onchange = () => {
+        const u = $("p-endkind").value === "until";
+        $("p-count").hidden = u;
+        $("p-until").hidden = !u;
+    };
+}
+
+function buildRule() {
+    const freq = $("p-rep").value;
+    if (!freq) return null;
+    if (freq === "__keep") return $("p-rep").dataset.orig || null;
+    if ($("p-endkind").value === "until" && $("p-until").value) {
+        return `RRULE:${freq};UNTIL=${$("p-until").value.replaceAll("-", "")}T235959Z`;
+    }
+    return `RRULE:${freq};COUNT=${Math.max(2, Math.min(52, +$("p-count").value || 4))}`;
+}
+
+function popEnterSubmits(fn) {
+    $("pop").onkeydown = (e) => {
+        if (e.key === "Escape") hidePop();
+        if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") fn();
+    };
 }
 
 function openBookPop(td, spaceId, slot) {
@@ -414,17 +528,9 @@ function openBookPop(td, spaceId, slot) {
         ${s.note ? `<div class="sub roomnote">${esc(s.note)}</div>` : ""}
         ${s.amenities?.length ? `<div class="sub">${esc(s.amenities.join(" · "))}</div>` : ""}
         <input id="p-title" placeholder="Title" value="Meeting">
-        <input id="p-att" placeholder="Attendees (emails, comma-separated)">
-        <div class="row">
-            <select id="p-rep">
-                <option value="">Does not repeat</option>
-                <option value="FREQ=DAILY">Daily</option>
-                <option value="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR">Every weekday</option>
-                <option value="FREQ=WEEKLY">Weekly</option>
-                <option value="FREQ=MONTHLY">Monthly</option>
-            </select>
-            <input id="p-count" type="number" min="2" max="52" value="4" title="Number of occurrences" hidden>
-        </div>
+        <textarea id="p-desc" rows="2" placeholder="Description (optional)"></textarea>
+        ${chipsHtml}
+        ${recControlsHtml(null, "Does not repeat")}
         <label class="chk"><input type="checkbox" id="p-priv">Private</label>
         <div class="row">
             <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === 30 ? " selected" : ""}>${d} min</option>`).join("")}</select>
@@ -432,44 +538,43 @@ function openBookPop(td, spaceId, slot) {
         </div>
         <p class="err" id="p-err"></p>`;
     positionPop(td);
-    $("p-rep").onchange = () => { $("p-count").hidden = !$("p-rep").value; };
+    wireRecControls();
+    const chips = initChips([]);
     $("p-title").select();
-    $("p-book").onclick = () => book(spaceId, startMin);
-    pop.onkeydown = (e) => { if (e.key === "Enter") book(spaceId, startMin); if (e.key === "Escape") hidePop(); };
+    $("p-book").onclick = () => book(spaceId, startMin, chips);
+    popEnterSubmits(() => book(spaceId, startMin, chips));
 }
 
-async function book(spaceId, startMin) {
+async function book(spaceId, startMin, chips) {
     const dur = +$("p-dur").value;
     const title = $("p-title").value.trim() || "Meeting";
+    const desc = $("p-desc").value.trim();
     const start = new Date(day); start.setHours(0, startMin, 0, 0);
     const end = new Date(start.getTime() + dur * 60000);
+    const emails = chips.get();
+    if (!emails) { $("p-err").textContent = "Finish or clear the attendee email"; return; }
     $("p-book").disabled = true;
     $("p-err").textContent = "";
-    const attendees = $("p-att").value.split(",").map((e) => e.trim()).filter(Boolean);
-    const bad = attendees.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
-    if (bad) { $("p-err").textContent = `Invalid email: ${bad}`; $("p-book").disabled = false; return; }
-    const invitees = [auth.email, ...attendees]
-        .filter((e, i, a) => a.findIndex((x) => x.toLowerCase() === e.toLowerCase()) === i)
-        .map((email) => ({ email }));
-    const rep = $("p-rep").value;
+    const rule = buildRule();
     try {
         const s = spaces.find((x) => x.id === spaceId);
         await robin(`/events`, {
             method: "POST",
             body: JSON.stringify({
                 title,
+                ...(desc ? { description: desc } : {}),
                 space_id: spaceId,
                 calendar_type: s.cal.type,
                 calendar_mailbox_address: s.cal.mailbox,
-                invitees,
+                invitees: inviteesFrom(emails),
                 visibility: $("p-priv").checked ? "private" : "default",
-                ...(rep ? { recurrence: [`RRULE:${rep};COUNT=${Math.max(2, Math.min(52, +$("p-count").value || 4))}`] } : {}),
+                ...(rule ? { recurrence: [rule] } : {}),
                 start: { date_time: isoLocal(start), time_zone: site.tz },
                 end: { date_time: isoLocal(end), time_zone: site.tz },
             }),
         });
         hidePop();
-        toast(`Booked ${spaces.find((s) => s.id === spaceId).name} at ${fmtTime(startMin)}${rep ? " (recurring)" : ""}`);
+        toast(`Booked ${s.name} at ${fmtTime(startMin)}${rule ? " (recurring)" : ""}`);
         reloadSpace(spaceId);
     } catch (e) {
         $("p-err").textContent = e.message;
@@ -485,6 +590,7 @@ function openEventPop(td, spaceId, eventId) {
     pop.innerHTML = `
         <div class="head">${esc(ev.title)}</div>
         <div class="sub">${fmtTime(ev.startMin)} – ${fmtTime(ev.endMin)}</div>
+        ${ev.desc ? `<div class="sub">${esc(ev.desc)}</div>` : ""}
         <button id="p-edit">Edit${isInstance ? " this occurrence" : ""}</button>
         <button class="danger" id="p-del">${isInstance ? "Cancel this occurrence" : "Cancel booking"}</button>
         ${isInstance ? '<button class="danger" id="p-delseries">Cancel whole series</button>' : ""}
@@ -511,9 +617,15 @@ async function openEditPop(el, spaceId, eventId) {
     const pop = $("pop");
     pop.innerHTML = `<div class="sub">Loading…</div>`;
     positionPop(el);
-    let d;
+    const isInstance = eventId.includes("_");
+    const masterId = isInstance ? eventId.split("_")[0] : eventId;
+    let d, masterRule;
     try {
         d = (await robin(`/events/${encodeURIComponent(eventId)}`)).data;
+        // recurrence lives on the series master only
+        masterRule = isInstance
+            ? ((await robin(`/events/${encodeURIComponent(masterId)}`)).data.recurrence || [])[0] || null
+            : (d.recurrence || [])[0] || null;
     } catch (e) {
         pop.innerHTML = `<p class="err">${esc(e.message)}</p>`;
         return;
@@ -530,26 +642,28 @@ async function openEditPop(el, spaceId, eventId) {
     const durs = [15, 30, 45, 60, 90, 120];
     if (!durs.includes(dur)) durs.push(dur), durs.sort((a, b) => a - b);
     pop.innerHTML = `
-        <div class="head">Edit — ${esc(s.name)}</div>
+        <div class="head">Edit — ${esc(s.name)}${isInstance ? '<span class="sub"> (this occurrence)</span>' : ""}</div>
         <input id="p-title" placeholder="Title" value="${esc(d.title || "")}">
-        <input id="p-att" placeholder="Attendees (emails, comma-separated)" value="${esc(attendees.join(", "))}">
+        <textarea id="p-desc" rows="2" placeholder="Description (optional)">${esc(d.description || "")}</textarea>
+        ${chipsHtml}
         <div class="row">
             <select id="p-start">${starts.map((m) => `<option value="${m}"${m === startMin ? " selected" : ""}>${fmtTime(m)}</option>`).join("")}</select>
             <select id="p-dur">${durs.map((x) => `<option value="${x}"${x === dur ? " selected" : ""}>${x} min</option>`).join("")}</select>
         </div>
+        ${isInstance ? '<div class="sub">Series repeats:</div>' : ""}
+        ${recControlsHtml(masterRule, isInstance ? "Stop repeating" : "Does not repeat")}
         <label class="chk"><input type="checkbox" id="p-priv"${d.visibility === "private" ? " checked" : ""}>Private</label>
         <button class="primary" id="p-save">Save</button>
         <p class="err" id="p-err"></p>`;
     positionPop(el);
-    $("p-save").onclick = async () => {
-        const emails = $("p-att").value.split(",").map((e) => e.trim()).filter(Boolean);
-        const bad = emails.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
-        if (bad) { $("p-err").textContent = `Invalid email: ${bad}`; return; }
-        const invitees = [auth.email, ...emails]
-            .filter((e, i, a) => a.findIndex((x) => x.toLowerCase() === e.toLowerCase()) === i)
-            .map((email) => ({ email }));
+    wireRecControls();
+    const chips = initChips(attendees);
+    const save = async () => {
+        const emails = chips.get();
+        if (!emails) { $("p-err").textContent = "Finish or clear the attendee email"; return; }
         const newStart = new Date(day); newStart.setHours(0, +$("p-start").value, 0, 0);
         const newEnd = new Date(newStart.getTime() + +$("p-dur").value * 60000);
+        const rule = buildRule();
         $("p-save").disabled = true;
         $("p-err").textContent = "";
         try {
@@ -557,12 +671,21 @@ async function openEditPop(el, spaceId, eventId) {
                 method: "PATCH",
                 body: JSON.stringify({
                     title: $("p-title").value.trim() || "Meeting",
-                    invitees,
+                    description: $("p-desc").value.trim(),
+                    invitees: inviteesFrom(emails),
                     visibility: $("p-priv").checked ? "private" : "default",
                     start: { date_time: isoLocal(newStart), time_zone: site.tz },
                     end: { date_time: isoLocal(newEnd), time_zone: site.tz },
+                    // recurrence must be PATCHed on the master, separately for instances
+                    ...(isInstance ? {} : rule !== masterRule ? { recurrence: rule ? [rule] : null } : {}),
                 }),
             });
+            if (isInstance && rule !== masterRule) {
+                await robin(`/events/${encodeURIComponent(masterId)}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ recurrence: rule ? [rule] : null }),
+                });
+            }
             hidePop();
             toast("Booking updated");
             reloadSpace(spaceId);
@@ -571,6 +694,8 @@ async function openEditPop(el, spaceId, eventId) {
             $("p-save").disabled = false;
         }
     };
+    $("p-save").onclick = save;
+    popEnterSubmits(save);
 }
 
 async function reloadSpace(spaceId) {
@@ -578,6 +703,7 @@ async function reloadSpace(spaceId) {
     try {
         const json = await robin(`/spaces/${spaceId}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
         events.set(spaceId, (json.data || []).map((e) => ({
+            desc: e.description || "",
             id: e.id,
             title: e.title || "Reserved",
             startMin: minutesOfDay(e.start),

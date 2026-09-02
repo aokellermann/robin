@@ -56,8 +56,11 @@ probing; Robin's public docs don't cover most of this.
   calendar invite/email is sent. With the invitee it shows in `/me/events` (which is what the
   dashboard's schedule/user view reflects) and Google emails the invite. `is_organizer: true` in
   the invitee is ignored (the resource calendar stays organizer).
-- **Edit**: `PATCH /events/{id}` with any subset of `{title, invitees, visibility, start, end}`
-  (send `start` and `end` together when changing times). No PUT (405).
+- **Edit**: `PATCH /events/{id}` with any subset of `{title, description, invitees, visibility,
+  start, end, recurrence}` (send `start` and `end` together when changing times). No PUT (405).
+  `recurrence` PATCHes only on the series master id — an instance id 400s; `recurrence: null`
+  removes the rule, and adding a rule to a plain event turns it into a series. `description`
+  works on POST/PATCH and comes back in both GET and the events list.
 - **Cancel**: `DELETE /events/{id}` (works for own events). For recurring series, instance ids
   look like `{masterId}_{YYYYMMDDTHHMMSSZ}`; DELETE on an instance id cancels just that
   occurrence, DELETE on the master id cancels the whole series.
