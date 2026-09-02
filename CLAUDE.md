@@ -57,6 +57,21 @@ probing; Robin's public docs don't cover most of this.
 - **`GET /free-busy/spaces` is broken** (500 for every parameter format tried) — don't use it;
   that's why the app fans out per-space event fetches instead.
 - **CORS**: `access-control-allow-origin: *` on api.robinpowered.com, so no proxy is needed.
+- **Levels (floors)**: `GET /locations/{locId}/levels`. Spaces carry `level_id`.
+- **Floorplans / map geometry** live on a separate service, `atlas.services.robinpowered.com`
+  (CORS `*` too; same `Access-Token` auth + `Tenant-Id` header):
+  - `GET /floorplans/levels?ids=<levelIds>` → per level a public `svg` URL
+    (storage.googleapis.com, no auth) and `bounds` (always the full `[-180..180]×[-90..90]`).
+  - `GET /layers/spaces?ids=<spaceIds>` → GeoJSON Polygon features, `properties.ownerId` = space
+    id, coords in that same world space with **y up** (map to pixels via
+    `xpx=(x+180)/360*W`, `ypx=(90-y)/180*H` where W×H is the floorplan SVG's intrinsic size).
+  - `GET /layers/levels?ids=...` returns `[]` and `GET /organizations/{org}/layers/all` returns
+    markers (restrooms etc.) — the per-space query above is the useful one.
+- **Dark Reader gotcha**: the user's browser runs Dark Reader, whose fallback stylesheet sets
+  `background-color` on *every* element with `!important`. The floorplan is therefore rendered as
+  one self-contained inline `<svg>` (white `<rect>` + `<image>` + polygons) — SVG shapes use
+  `fill`, which background overrides can't touch. A plain `<img>`/`<canvas>` with a transparent
+  overlay SVG gets its background repainted dark and the floorplan becomes invisible.
 - GraphQL (`federation-gateway.robinpowered.com/graphql`) exists (persisted queries, used by the
   people directory) but has introspection disabled; the REST endpoints above are the
   usable surface for booking.

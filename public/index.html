@@ -148,7 +148,7 @@
 
     /* popover */
     #pop {
-        position: absolute;
+        position: fixed;
         z-index: 10;
         background: var(--panel);
         border: 1px solid var(--line);
@@ -165,6 +165,57 @@
     #pop .row { display: flex; gap: 6px; }
     #pop .row > * { flex: 1; }
     #pop .err { color: var(--danger); font-size: 12px; min-height: 1em; margin: 0; }
+
+    /* amenity filter dropdown */
+    #amenfilter { position: relative; }
+    #amenfilter summary {
+        list-style: none;
+        cursor: pointer;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        user-select: none;
+    }
+    #amenfilter[open] summary, #amenfilter summary.active { border-color: var(--accent); color: var(--accent); }
+    #amenfilter .menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 30;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 8px 30px rgba(0,0,0,.25);
+        padding: 8px;
+        min-width: 180px;
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    #amenfilter .menu label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 6px;
+        border-radius: 5px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    #amenfilter .menu label:hover { background: var(--free-hover); }
+
+    /* map view */
+    #mapwrap { flex: 1; overflow: auto; display: none; flex-direction: column; }
+    #mapbar { display: flex; gap: 6px; padding: 8px 14px; align-items: center; flex-wrap: wrap; }
+    #mapbar button.floor.sel { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    #mapbox { flex: 1; min-height: 0; margin: 0 14px 14px; display: flex; align-items: center; justify-content: center; }
+    #mapinner { position: relative; max-width: 100%; max-height: 100%; width: 100%; }
+    #mapinner svg { display: block; width: 100%; height: auto; }
+    #mapbox polygon { cursor: pointer; }
+    #mapbox polygon.free { fill: color-mix(in srgb, var(--accent) 45%, transparent); stroke: var(--accent); }
+    #mapbox polygon.busy { fill: color-mix(in srgb, var(--danger) 40%, transparent); stroke: var(--danger); cursor: default; }
+    #mapbox polygon.dim { fill: color-mix(in srgb, var(--muted) 20%, transparent); stroke: var(--muted); cursor: default; }
+    /* floorplan backing rect is always white, so labels are always dark */
+    #mapbox text { fill: #2c2a27; pointer-events: none; text-anchor: middle; }
 
     #toast {
         position: fixed;
@@ -197,6 +248,7 @@
         <button id="today">Today</button>
         <button id="next">›</button>
         <span class="datelabel" id="datelabel"></span>
+        <input type="date" id="datepick">
         <select id="mincap">
             <option value="0">Any size</option>
             <option value="2">2+</option>
@@ -204,6 +256,11 @@
             <option value="6">6+</option>
             <option value="10">10+</option>
         </select>
+        <details id="amenfilter">
+            <summary>Amenities</summary>
+            <div class="menu" id="amenmenu"></div>
+        </details>
+        <button id="viewtoggle">Map</button>
         <span class="spacer"></span>
         <span id="status"></span>
         <button id="refresh">Refresh</button>
@@ -212,8 +269,15 @@
     </header>
     <div id="gridwrap">
         <table id="grid"></table>
-        <div id="pop"></div>
     </div>
+    <div id="mapwrap">
+        <div id="mapbar">
+            <span id="floors"></span>
+            <select id="maptime"></select>
+        </div>
+        <div id="mapbox"><div id="mapinner"></div></div>
+    </div>
+    <div id="pop"></div>
 </div>
 
 <div id="toast"></div>
@@ -305,7 +369,7 @@ function logout() {
 
 // ---------- data ----------
 async function loadSpaces() {
-    const cached = localStorage.getItem("robin.spaces");
+    const cached = localStorage.getItem("robin.spaces.v2");
     if (cached) {
         try { spaces = JSON.parse(cached); } catch {}
     }
@@ -321,10 +385,11 @@ async function fetchSpaces() {
             name: s.name,
             capacity: s.capacity,
             type: s.type,
+            level_id: s.level_id,
             cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    localStorage.setItem("robin.spaces", JSON.stringify(list));
+    localStorage.setItem("robin.spaces.v2", JSON.stringify(list));
     return list;
 }
 async function refreshSpacesInBackground() {
@@ -350,11 +415,12 @@ async function loadAmenities() {
             s.amenities = (json.data || []).map((a) => a.name).filter(Boolean);
         } catch {}
     }));
-    localStorage.setItem("robin.spaces", JSON.stringify(spaces));
+    localStorage.setItem("robin.spaces.v2", JSON.stringify(spaces));
     for (const s of spaces) {
         const td = document.querySelector(`tr[data-space="${s.id}"] td.room`);
         if (td && s.amenities?.length) td.title = s.amenities.join(", ");
     }
+    buildAmenMenu();
 }
 
 function dayRange() {
@@ -363,10 +429,12 @@ function dayRange() {
     return { after: isoLocal(after), before: isoLocal(before) };
 }
 
-async function loadDay() {
+async function loadDay(onlyMissing = false) {
     const seq = ++fetchSeq;
     const { after, before } = dayRange();
-    const visible = visibleSpaces();
+    let visible = visibleSpaces();
+    if (onlyMissing) visible = visible.filter((s) => !events.has(s.id));
+    if (!visible.length) return;
     $("status").textContent = "Loading…";
     let done = 0;
     await Promise.all(visible.map(async (s) => {
@@ -380,7 +448,7 @@ async function loadDay() {
                 endMin: minutesOfDay(e.end),
                 mine: e.creator_id === auth.account_id || (e.creator_email && e.creator_email.toLowerCase() === auth.email.toLowerCase()),
             })));
-            renderRow(s.id);
+            updateSpaceView(s.id);
         } catch (e) {
             if (seq === fetchSeq) console.warn("events fetch failed for", s.name, e);
         } finally {
@@ -397,9 +465,27 @@ function minutesOfDay(t) {
 }
 
 // ---------- rendering ----------
+let amenChecked = new Set();
 function visibleSpaces() {
     const minCap = +$("mincap").value;
-    return spaces.filter((s) => !minCap || (s.capacity || 0) >= minCap);
+    return spaces.filter((s) =>
+        (!minCap || (s.capacity || 0) >= minCap) &&
+        [...amenChecked].every((a) => (s.amenities || []).includes(a)));
+}
+
+function buildAmenMenu() {
+    const all = [...new Set(spaces.flatMap((s) => s.amenities || []))].sort();
+    if (!all.length) return;
+    $("amenmenu").innerHTML = all.map((a) =>
+        `<label><input type="checkbox" value="${esc(a)}"${amenChecked.has(a) ? " checked" : ""}>${esc(a)}</label>`).join("");
+    for (const cb of $("amenmenu").querySelectorAll("input")) {
+        cb.onchange = () => {
+            cb.checked ? amenChecked.add(cb.value) : amenChecked.delete(cb.value);
+            document.querySelector("#amenfilter summary").classList.toggle("active", amenChecked.size > 0);
+            renderView();
+            loadDay(true);
+        };
+    }
 }
 
 function slotLabel(i) {
@@ -488,17 +574,15 @@ $("grid").addEventListener("click", (e) => {
 
 document.addEventListener("click", (e) => {
     if (!e.target.closest("#pop") && !e.target.closest("td")) hidePop();
+    if (!e.target.closest("#amenfilter")) $("amenfilter").removeAttribute("open");
 });
 
-function positionPop(td) {
+function positionPop(el) {
     const pop = $("pop");
-    const wrap = $("gridwrap");
-    const r = td.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
     pop.style.display = "flex";
-    let left = r.left - w.left + wrap.scrollLeft;
-    left = Math.min(left, wrap.scrollLeft + wrap.clientWidth - 280);
-    pop.style.left = Math.max(0, left) + "px";
-    pop.style.top = (r.bottom - w.top + wrap.scrollTop + 4) + "px";
+    pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 280)) + "px";
+    pop.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 260)) + "px";
 }
 
 function hidePop() { $("pop").style.display = "none"; }
@@ -628,7 +712,7 @@ async function reloadSpace(spaceId) {
             endMin: minutesOfDay(e.end),
             mine: e.creator_id === auth.account_id || (e.creator_email && e.creator_email.toLowerCase() === auth.email.toLowerCase()),
         })));
-        renderRow(spaceId);
+        updateSpaceView(spaceId);
     } catch {}
 }
 
@@ -649,15 +733,164 @@ function toast(msg) {
     toastTimer = setTimeout(() => (t.style.display = "none"), 2500);
 }
 
+// ---------- map view ----------
+const ATLAS = "https://atlas.services.robinpowered.com";
+let view = "grid";
+let mapData = null;   // {levels:[{id,name}], plans:{levelId:svgUrl}, geo:{spaceId:[[x,y],...]}}
+let curLevel = null;
+let mapMin = null;    // selected map time, minutes of day
+
+async function atlas(path) {
+    const res = await fetch(ATLAS + path, {
+        headers: { "Authorization": "Access-Token " + auth.token, "Tenant-Id": String(ORG_ID) },
+    });
+    if (!res.ok) throw new Error("atlas " + res.status);
+    return (await res.json()).data;
+}
+
+async function loadMapData() {
+    if (mapData) return;
+    try { mapData = JSON.parse(localStorage.getItem("robin.map")); } catch {}
+    if (mapData) { refreshMapDataInBackground(); return; }
+    mapData = await fetchMapData();
+}
+async function fetchMapData() {
+    const levelsJson = await robin(`/locations/${LOCATION_ID}/levels?per_page=100`);
+    const levels = levelsJson.data
+        .map((l) => ({ id: l.id, name: l.name }))
+        .sort((a, b) => (parseInt(a.name.replace(/\D/g, "")) || 0) - (parseInt(b.name.replace(/\D/g, "")) || 0));
+    const [plansArr, feats] = await Promise.all([
+        atlas(`/floorplans/levels?ids=${levels.map((l) => l.id).join(",")}`),
+        atlas(`/layers/spaces?ids=${spaces.map((s) => s.id).join(",")}`),
+    ]);
+    const plans = {};
+    for (const p of plansArr) plans[p.entityId] = p.svg;
+    const geo = {};
+    for (const f of feats) {
+        if (f.geometry?.type === "Polygon") geo[f.properties.ownerId] = f.geometry.coordinates[0];
+    }
+    const data = { levels: levels.filter((l) => plans[l.id]), plans, geo };
+    localStorage.setItem("robin.map", JSON.stringify(data));
+    return data;
+}
+async function refreshMapDataInBackground() {
+    try {
+        const fresh = await fetchMapData();
+        if (JSON.stringify(fresh) !== JSON.stringify(mapData)) { mapData = fresh; if (view === "map") renderMap(); }
+    } catch {}
+}
+
+// Floorplan natural sizes, measured by loading each SVG as an image once.
+const planSizes = {};
+function planSize(url) {
+    if (planSizes[url]) return Promise.resolve(planSizes[url]);
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve((planSizes[url] = { w: img.naturalWidth || 3600, h: img.naturalHeight || 1800 }));
+        img.onerror = () => reject(new Error("floorplan failed to load"));
+        img.src = url;
+    });
+}
+
+function defaultMapMin() {
+    const now = new Date();
+    if (now.toDateString() === day.toDateString()) {
+        const m = Math.ceil((now.getHours() * 60 + now.getMinutes()) / STEP_MIN) * STEP_MIN;
+        return Math.max(DAY_START * 60, Math.min(m, DAY_END * 60 - 30));
+    }
+    return 9 * 60;
+}
+
+function renderMap() {
+    if (!mapData) return;
+    if (!curLevel || !mapData.plans[curLevel]) curLevel = mapData.levels[0]?.id;
+    if (mapMin === null) mapMin = defaultMapMin();
+    $("floors").innerHTML = mapData.levels.map((l) =>
+        `<button class="floor${l.id === curLevel ? " sel" : ""}" data-level="${l.id}">${esc(l.name.replace("Floor ", ""))}</button>`).join(" ");
+    for (const b of $("floors").querySelectorAll("button")) b.onclick = () => { curLevel = +b.dataset.level; renderMap(); };
+    // time options: 30-min steps
+    const opts = [];
+    for (let m = DAY_START * 60; m < DAY_END * 60; m += 30) opts.push(`<option value="${m}"${m === mapMin ? " selected" : ""}>${fmtTime(m)}</option>`);
+    $("maptime").innerHTML = opts.join("");
+    $("maptime").onchange = () => { mapMin = +$("maptime").value; renderMap(); };
+    const planUrl = mapData.plans[curLevel];
+    const size = planSizes[planUrl];
+    if (!size) {
+        // measure the floorplan once, then re-render with real dimensions
+        planSize(planUrl).then(() => renderMap()).catch(() => toast("Floorplan failed to load"));
+        $("mapinner").innerHTML = "";
+        return;
+    }
+    const { w: W, h: H } = size;
+    // atlas world coords: x in [-180,180], y in [90,-90] (y up) over the full plan
+    const px = (x) => ((x + 180) / 360 * W).toFixed(1);
+    const py = (y) => ((90 - y) / 180 * H).toFixed(1);
+    const fontSize = Math.round(W / 90);
+    const visible = new Set(visibleSpaces().map((s) => s.id));
+    // one self-contained SVG (white rect + floorplan image + room shapes): SVG
+    // shapes use fill, which dark-mode extensions' background overrides can't touch
+    let svg = `<svg viewBox="0 0 ${W} ${H}" font-size="${fontSize}">`;
+    svg += `<rect width="${W}" height="${H}" fill="#fff" rx="${W / 300}"/>`;
+    svg += `<image href="${esc(planUrl)}" width="${W}" height="${H}"/>`;
+    for (const s of spaces) {
+        if (s.level_id !== curLevel) continue;
+        const ring = mapData.geo[s.id];
+        if (!ring) continue;
+        const pts = ring.map(([x, y]) => `${px(x)},${py(y)}`).join(" ");
+        const evs = events.get(s.id) || [];
+        const busy = evs.some((e) => e.startMin < mapMin + 30 && e.endMin > mapMin);
+        const cls = !visible.has(s.id) || !s.cal ? "dim" : busy ? "busy" : "free";
+        const cx = px(ring.reduce((a, p) => a + p[0], 0) / ring.length);
+        const cy = py(ring.reduce((a, p) => a + p[1], 0) / ring.length);
+        const tip = `${s.name}${s.capacity ? ` (${s.capacity}p)` : ""}${s.amenities?.length ? " — " + s.amenities.join(", ") : ""}`;
+        svg += `<polygon class="${cls}" points="${pts}" data-space="${s.id}" stroke-width="${W / 900}"><title>${esc(tip)}</title></polygon>`;
+        svg += `<text x="${cx}" y="${cy}">${esc(s.name)}</text>`;
+    }
+    svg += "</svg>";
+    $("mapinner").innerHTML = svg;
+    for (const poly of $("mapinner").querySelectorAll("polygon")) {
+        poly.onclick = (e) => {
+            e.stopPropagation();
+            const spaceId = +poly.dataset.space;
+            const slot = (mapMin - DAY_START * 60) / STEP_MIN;
+            const evs = events.get(spaceId) || [];
+            const ev = evs.find((x) => x.startMin < mapMin + 30 && x.endMin > mapMin);
+            if (ev) { if (ev.mine) openEventPop(poly, spaceId, ev.id); return; }
+            if (poly.classList.contains("free")) openBookPop(poly, spaceId, slot);
+        };
+    }
+}
+
+function updateSpaceView(spaceId) {
+    if (view === "grid") renderRow(spaceId);
+    else renderMap();
+}
+
+function renderView() {
+    $("gridwrap").style.display = view === "grid" ? "" : "none";
+    $("mapwrap").style.display = view === "map" ? "flex" : "none";
+    $("viewtoggle").textContent = view === "grid" ? "Map" : "Grid";
+    $("datelabel").textContent = day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    $("datepick").value = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    if (view === "grid") renderGrid();
+    else { loadMapData().then(renderMap).catch((e) => toast("Map failed to load: " + e.message)); }
+}
+
+$("viewtoggle").onclick = () => { view = view === "grid" ? "map" : "grid"; hidePop(); renderView(); };
+
 // ---------- nav ----------
-function setDay(d) { day = d; hidePop(); renderGrid(); loadDay(); }
+function setDay(d) { day = d; hidePop(); events.clear(); mapMin = null; renderView(); loadDay(); }
 $("prev").onclick = () => setDay(new Date(day.getTime() - 864e5));
 $("next").onclick = () => setDay(new Date(day.getTime() + 864e5));
 $("today").onclick = () => setDay(startOfToday());
+$("datepick").onchange = () => {
+    const [y, m, dd] = $("datepick").value.split("-").map(Number);
+    if (y) setDay(new Date(y, m - 1, dd));
+};
 $("refresh").onclick = () => loadDay();
-$("mincap").onchange = () => { renderGrid(); loadDay(); };
+$("mincap").onchange = () => { renderView(); loadDay(true); };
 $("logout").onclick = logout;
-setInterval(() => { const tr = document.querySelector("tr[data-space]"); if (tr) renderGrid(); }, 60000);
+setInterval(() => { if (document.querySelector("tr[data-space]")) renderView(); }, 60000);
 
 // ---------- boot ----------
 async function start() {
@@ -665,7 +898,8 @@ async function start() {
     $("app").style.display = "flex";
     $("who").textContent = auth.email;
     await loadSpaces();
-    renderGrid();
+    buildAmenMenu();
+    renderView();
     loadDay();
     loadAmenities();
 }
