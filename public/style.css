@@ -179,6 +179,14 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 #pop .desc { max-height: 5.5em; overflow-y: auto; }
 #pop .row { display: flex; gap: 6px; }
 #pop .row[hidden] { display: none; }
+#p-recopts { display: flex; flex-direction: column; gap: 8px; }
+#p-recopts[hidden] { display: none; }
+#pop .recrow { align-items: center; }
+#pop .recrow .sub { flex: 0 0 auto; }
+#pop .recrow input { flex: 1; min-width: 0; }
+#pop .days { display: flex; gap: 3px; }
+#pop .days button { flex: 1; padding: 3px 0; font-size: 11px; }
+#pop .days button.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 #pop .row > * { flex: 1; }
 #pop .err { color: var(--danger); font-size: 12px; min-height: 1em; margin: 0; }
 #pop textarea {

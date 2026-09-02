@@ -70,8 +70,11 @@ probing; Robin's public docs don't cover most of this.
 - **Cancel**: `DELETE /events/{id}` (works for own events). For recurring series, instance ids
   look like `{masterId}_{YYYYMMDDTHHMMSSZ}`; DELETE on an instance id cancels just that
   occurrence, DELETE on the master id cancels the whole series.
-- **Recurring**: pass `recurrence: ["RRULE:FREQ=WEEKLY;COUNT=3"]` (standard RRULE) in the
-  `POST /events` body; instances materialize on the room calendar within a couple seconds.
+- **Recurring**: pass `recurrence: ["RRULE:..."]` (standard RRULE) in the `POST /events` body;
+  instances materialize on the room calendar within a couple seconds. Verified accepted:
+  FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, BYDAY (multi-day and ordinal like `1FR`/`-1MO`),
+  BYMONTHDAY, COUNT, UNTIL, and never-ending rules (no COUNT/UNTIL). Google reorders params on
+  storage (e.g. COUNT before INTERVAL) — parse by key, not position.
 - **Private**: `visibility: "private"` in the `POST /events` body (default `"default"`).
 - **Extra attendees**: more entries in `invitees`. Only org-member emails are retained by Robin
   (an external gmail was silently dropped from the invitee list); `is_organizer: true` is ignored.

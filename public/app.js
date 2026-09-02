@@ -634,58 +634,142 @@ async function loadDirectory() {
 }
 
 // ---------- recurrence controls ----------
-const FREQ_OPTS = [
-    ["FREQ=DAILY", "Daily"],
-    ["FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "Every weekday"],
-    ["FREQ=WEEKLY", "Weekly"],
-    ["FREQ=MONTHLY", "Monthly"],
-];
+const BYDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const ORDINALS = ["", "first", "second", "third", "fourth", "fifth"];
 
 function parseRule(rule) {
-    if (!rule) return {};
-    const parts = Object.fromEntries(rule.replace(/^RRULE:/, "").split(";").map((kv) => kv.split("=")));
-    let freq = "FREQ=" + parts.FREQ;
-    if (parts.BYDAY) freq += ";BYDAY=" + parts.BYDAY;
-    const until = parts.UNTIL ? `${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}` : null;
-    return { freq, count: parts.COUNT ? +parts.COUNT : null, until };
+    if (!rule) return { freq: "", interval: 1, byday: [], bymonthday: null, count: null, until: null, monthlyBy: null, custom: false };
+    const parts = {};
+    for (const kv of rule.replace(/^RRULE:/, "").split(";")) {
+        const [k, v] = kv.split("=");
+        parts[k] = v;
+    }
+    const r = {
+        freq: parts.FREQ || "",
+        interval: +(parts.INTERVAL || 1),
+        byday: parts.BYDAY ? parts.BYDAY.split(",") : [],
+        bymonthday: parts.BYMONTHDAY ? +parts.BYMONTHDAY : null,
+        count: parts.COUNT ? +parts.COUNT : null,
+        until: parts.UNTIL ? `${parts.UNTIL.slice(0, 4)}-${parts.UNTIL.slice(4, 6)}-${parts.UNTIL.slice(6, 8)}` : null,
+        monthlyBy: null, // e.g. "BYMONTHDAY=15" or "BYDAY=3WE"
+    };
+    // figure out whether the editor can represent this rule; else offer keep-as-is
+    const known = new Set(["FREQ", "INTERVAL", "BYDAY", "BYMONTHDAY", "COUNT", "UNTIL", "WKST"]);
+    let custom = !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(r.freq) ||
+        Object.keys(parts).some((k) => !known.has(k)) ||
+        (r.count && r.until);
+    if (r.freq === "WEEKLY") {
+        if (r.bymonthday !== null || r.byday.some((d) => !BYDAYS.includes(d))) custom = true;
+    } else if (r.freq === "MONTHLY") {
+        if (r.bymonthday !== null && !r.byday.length) r.monthlyBy = `BYMONTHDAY=${r.bymonthday}`;
+        else if (r.byday.length === 1 && !r.bymonthday && /^(-1|[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.test(r.byday[0])) r.monthlyBy = `BYDAY=${r.byday[0]}`;
+        else if (r.byday.length || r.bymonthday !== null) custom = true;
+    } else if (r.byday.length || r.bymonthday !== null) {
+        custom = true; // BYDAY/BYMONTHDAY on DAILY/YEARLY
+    }
+    r.custom = custom;
+    return r;
+}
+
+// monthly patterns derivable from the event's date
+function monthlyChoices(date) {
+    const dom = date.getDate();
+    const wd = BYDAYS[date.getDay()];
+    const nth = Math.ceil(dom / 7);
+    const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    const out = [
+        [`BYMONTHDAY=${dom}`, `on day ${dom}`],
+        [`BYDAY=${nth}${wd}`, `on the ${ORDINALS[nth]} ${DAY_NAMES[date.getDay()]}`],
+    ];
+    if (dom > daysInMonth - 7) out.push([`BYDAY=-1${wd}`, `on the last ${DAY_NAMES[date.getDay()]}`]);
+    return out;
 }
 
 function recControlsHtml(rule, noneLabel) {
     const r = parseRule(rule);
-    const known = !r.freq || FREQ_OPTS.some(([v]) => v === r.freq);
+    const sel = r.custom ? "__keep" : r.freq;
+    const monthly = monthlyChoices(day);
+    // a parsed monthly pattern not derivable from today's date still gets an option
+    if (r.monthlyBy && !monthly.some(([v]) => v === r.monthlyBy)) {
+        const m = r.monthlyBy.match(/^BYDAY=(-1|[1-5])(\w\w)$/);
+        monthly.push([r.monthlyBy, m ? `on the ${m[1] === "-1" ? "last" : ORDINALS[+m[1]]} ${DAY_NAMES[BYDAYS.indexOf(m[2])]}` : `on day ${r.bymonthday}`]);
+    }
+    const units = { DAILY: "day(s)", WEEKLY: "week(s)", MONTHLY: "month(s)", YEARLY: "year(s)" };
     return `
         <select id="p-rep" data-orig="${esc(rule || "")}">
             <option value="">${noneLabel}</option>
-            ${FREQ_OPTS.map(([v, l]) => `<option value="${v}"${v === r.freq ? " selected" : ""}>${l}</option>`).join("")}
-            ${known ? "" : '<option value="__keep" selected>Custom rule (keep as is)</option>'}
+            <option value="DAILY"${sel === "DAILY" ? " selected" : ""}>Daily</option>
+            <option value="WEEKLY"${sel === "WEEKLY" ? " selected" : ""}>Weekly</option>
+            <option value="MONTHLY"${sel === "MONTHLY" ? " selected" : ""}>Monthly</option>
+            <option value="YEARLY"${sel === "YEARLY" ? " selected" : ""}>Yearly</option>
+            ${r.custom ? '<option value="__keep" selected>Custom rule (keep as is)</option>' : ""}
         </select>
-        <div class="row" id="p-repend"${r.freq && known ? "" : " hidden"}>
-            <select id="p-endkind">
-                <option value="count"${r.until ? "" : " selected"}>ends after</option>
-                <option value="until"${r.until ? " selected" : ""}>ends on</option>
+        <div id="p-recopts"${sel && sel !== "__keep" ? "" : " hidden"}>
+            <div class="row recrow">
+                <span class="sub">every</span>
+                <input id="p-int" type="number" min="1" max="99" value="${r.custom ? 1 : r.interval}">
+                <span class="sub" id="p-intu">${units[sel] || "week(s)"}</span>
+            </div>
+            <div class="days" id="p-bydays"${sel === "WEEKLY" ? "" : " hidden"}>
+                ${BYDAYS.map((d, i) => `<button type="button" data-d="${d}" class="${r.byday.includes(d) ? "on" : ""}" title="${DAY_NAMES[i]}">${DAY_LETTERS[i]}</button>`).join("")}
+            </div>
+            <select id="p-monthly"${sel === "MONTHLY" ? "" : " hidden"}>
+                ${monthly.map(([v, l]) => `<option value="${v}"${v === r.monthlyBy ? " selected" : ""}>${l}</option>`).join("")}
             </select>
-            <input id="p-count" type="number" min="2" max="52" value="${r.count || 4}"${r.until ? " hidden" : ""}>
-            <input id="p-until" type="date" value="${r.until || ""}"${r.until ? "" : " hidden"}>
+            <div class="row" id="p-repend">
+                <select id="p-endkind">
+                    <option value="never"${!r.count && !r.until ? " selected" : ""}>never ends</option>
+                    <option value="count"${r.count ? " selected" : ""}>ends after</option>
+                    <option value="until"${r.until ? " selected" : ""}>ends on</option>
+                </select>
+                <input id="p-count" type="number" min="2" max="99" value="${r.count || 4}"${r.count ? "" : " hidden"}>
+                <input id="p-until" type="date" value="${r.until || ""}"${r.until ? "" : " hidden"}>
+            </div>
         </div>`;
 }
 
 function wireRecControls() {
-    $("p-rep").onchange = () => { $("p-repend").hidden = !$("p-rep").value || $("p-rep").value === "__keep"; };
-    $("p-endkind").onchange = () => {
-        const u = $("p-endkind").value === "until";
-        $("p-count").hidden = u;
-        $("p-until").hidden = !u;
+    const units = { DAILY: "day(s)", WEEKLY: "week(s)", MONTHLY: "month(s)", YEARLY: "year(s)" };
+    $("p-rep").onchange = () => {
+        const f = $("p-rep").value;
+        $("p-recopts").hidden = !f || f === "__keep";
+        $("p-bydays").hidden = f !== "WEEKLY";
+        $("p-monthly").hidden = f !== "MONTHLY";
+        if (units[f]) $("p-intu").textContent = units[f];
+        // weekly with nothing picked: default to the grid day's weekday
+        if (f === "WEEKLY" && !$("p-bydays").querySelector(".on")) {
+            $("p-bydays").querySelector(`[data-d="${BYDAYS[day.getDay()]}"]`).classList.add("on");
+        }
     };
+    $("p-endkind").onchange = () => {
+        const k = $("p-endkind").value;
+        $("p-count").hidden = k !== "count";
+        $("p-until").hidden = k !== "until";
+    };
+    for (const b of $("p-bydays").querySelectorAll("button")) {
+        b.onclick = () => b.classList.toggle("on");
+    }
 }
 
 function buildRule() {
     const freq = $("p-rep").value;
     if (!freq) return null;
     if (freq === "__keep") return $("p-rep").dataset.orig || null;
-    if ($("p-endkind").value === "until" && $("p-until").value) {
-        return `RRULE:${freq};UNTIL=${$("p-until").value.replaceAll("-", "")}T235959Z`;
+    let rule = `RRULE:FREQ=${freq}`;
+    const interval = Math.max(1, Math.min(99, +$("p-int").value || 1));
+    if (interval > 1) rule += `;INTERVAL=${interval}`;
+    if (freq === "WEEKLY") {
+        const days = [...$("p-bydays").querySelectorAll(".on")].map((b) => b.dataset.d);
+        if (days.length) rule += `;BYDAY=${days.join(",")}`;
+    } else if (freq === "MONTHLY") {
+        rule += `;${$("p-monthly").value}`;
     }
-    return `RRULE:${freq};COUNT=${Math.max(2, Math.min(52, +$("p-count").value || 4))}`;
+    const endkind = $("p-endkind").value;
+    if (endkind === "count") rule += `;COUNT=${Math.max(2, Math.min(99, +$("p-count").value || 4))}`;
+    else if (endkind === "until" && $("p-until").value) rule += `;UNTIL=${$("p-until").value.replaceAll("-", "")}T235959Z`;
+    return rule;
 }
 
 function popEnterSubmits(fn) {
