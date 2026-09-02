@@ -310,7 +310,7 @@ function rowCells(s) {
             const endSlot = Math.min(SLOTS, Math.ceil((ev.endMin - DAY_START * 60) / STEP_MIN));
             const span = Math.max(1, endSlot - i);
             const past = isToday && DAY_START * 60 + endSlot * STEP_MIN <= nowMin;
-            html += `<td class="slot busy${ev.mine ? ' mine" draggable="true' : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}</td>`;
+            html += `<td class="slot busy${ev.mine ? ' mine" draggable="true' : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}${ev.mine ? '<span class="rsz"></span>' : ""}</td>`;
             i = endSlot;
         } else {
             const past = isToday && m0 + STEP_MIN <= nowMin;
@@ -375,6 +375,7 @@ function esc(x) {
 
 // ---------- interactions ----------
 $("grid").addEventListener("click", (e) => {
+    if (suppressClick || e.target.closest(".rsz")) return;
     const td = e.target.closest("td");
     if (!td) return;
     const tr = td.closest("tr[data-space]");
@@ -382,6 +383,68 @@ $("grid").addEventListener("click", (e) => {
     const spaceId = +tr.dataset.space;
     if (td.dataset.slot !== undefined) openBookPop(td, spaceId, +td.dataset.slot);
     else if (td.dataset.event && td.classList.contains("mine")) openEventPop(td, spaceId, td.dataset.event);
+});
+
+// drag the right edge of your own booking to change its duration
+let rsz = null;
+let suppressClick = false;
+$("grid").addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".rsz");
+    if (!h) return;
+    const td = h.closest("td.busy.mine");
+    const tr = td.closest("tr[data-space]");
+    const spaceId = +tr.dataset.space;
+    const ev = (events.get(spaceId) || []).find((x) => x.id === td.dataset.event);
+    if (!ev) return;
+    e.preventDefault();
+    td.removeAttribute("draggable");
+    const th = document.querySelector("#grid thead th:not(.room)");
+    let maxEnd = DAY_END * 60;
+    for (const x of events.get(spaceId) || []) {
+        if (x.id !== ev.id && x.startMin >= ev.endMin) maxEnd = Math.min(maxEnd, x.startMin);
+    }
+    rsz = { td, tr, spaceId, ev, maxEnd, pxPerMin: th.getBoundingClientRect().width / STEP_MIN, startX: e.clientX, newEnd: ev.endMin, moved: false };
+    document.body.style.cursor = "ew-resize";
+});
+document.addEventListener("pointermove", (e) => {
+    if (!rsz) return;
+    const dm = Math.round((e.clientX - rsz.startX) / rsz.pxPerMin / STEP_MIN) * STEP_MIN;
+    rsz.newEnd = Math.max(rsz.ev.startMin + STEP_MIN, Math.min(rsz.ev.endMin + dm, rsz.maxEnd));
+    if (rsz.newEnd !== rsz.ev.endMin) rsz.moved = true;
+    for (const c of rsz.tr.querySelectorAll("td[data-slot]")) {
+        const m0 = DAY_START * 60 + +c.dataset.slot * STEP_MIN;
+        c.classList.toggle("droptgt", m0 >= rsz.ev.endMin && m0 < rsz.newEnd);
+    }
+    const t = $("toast");
+    clearTimeout(toastTimer);
+    t.textContent = `${fmtTime(rsz.ev.startMin)} \u2013 ${fmtTime(rsz.newEnd)}`;
+    t.style.display = "block";
+});
+document.addEventListener("pointerup", async () => {
+    if (!rsz) return;
+    const { td, spaceId, ev, newEnd, moved } = rsz;
+    rsz = null;
+    document.body.style.cursor = "";
+    for (const t of document.querySelectorAll(".droptgt")) t.classList.remove("droptgt");
+    $("toast").style.display = "none";
+    td.setAttribute("draggable", "true");
+    if (moved) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
+    if (newEnd === ev.endMin) return;
+    const start = new Date(day); start.setHours(0, ev.startMin, 0, 0);
+    const end = new Date(day); end.setHours(0, newEnd, 0, 0);
+    try {
+        await robin(`/events/${encodeURIComponent(ev.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+                start: { date_time: isoLocal(start), time_zone: site.tz },
+                end: { date_time: isoLocal(end), time_zone: site.tz },
+            }),
+        });
+        toast(`${newEnd > ev.endMin ? "Extended" : "Shortened"} to ${fmtTime(newEnd)}`);
+        reloadSpace(spaceId);
+    } catch (err) {
+        toast("Resize failed: " + err.message);
+    }
 });
 
 // drag one of your own bookings to a free slot in the same row to reschedule it
@@ -395,7 +458,8 @@ $("grid").addEventListener("dragstart", (e) => {
 $("grid").addEventListener("dragover", (e) => {
     const td = e.target.closest("td.slot");
     if (!td || td.classList.contains("busy") || !dragEv) return;
-    if (+td.closest("tr[data-space]").dataset.space !== dragEv.spaceId) return;
+    const tgtSpace = +td.closest("tr[data-space]").dataset.space;
+    if (tgtSpace !== dragEv.spaceId && !spaces.find((x) => x.id === tgtSpace)?.cal) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     td.classList.add("droptgt");
@@ -417,22 +481,51 @@ $("grid").addEventListener("drop", async (e) => {
     dragEv = null;
     const ev = (events.get(spaceId) || []).find((x) => x.id === eventId);
     if (!ev) return;
+    const tgtSpace = +td.closest("tr[data-space]").dataset.space;
     const dur = ev.endMin - ev.startMin;
     const newStart = DAY_START * 60 + +td.dataset.slot * STEP_MIN;
-    if (newStart === ev.startMin) return;
-    const clash = (events.get(spaceId) || []).some((x) => x.id !== eventId && x.startMin < newStart + dur && x.endMin > newStart);
+    if (tgtSpace === spaceId && newStart === ev.startMin) return;
+    const clash = (events.get(tgtSpace) || []).some((x) => x.id !== eventId && x.startMin < newStart + dur && x.endMin > newStart);
     if (clash) { toast("That time overlaps another booking"); return; }
     const start = new Date(day); start.setHours(0, newStart, 0, 0);
     const end = new Date(start.getTime() + dur * 60000);
     try {
-        await robin(`/events/${encodeURIComponent(eventId)}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-                start: { date_time: isoLocal(start), time_zone: site.tz },
-                end: { date_time: isoLocal(end), time_zone: site.tz },
-            }),
-        });
-        toast(`Moved to ${fmtTime(newStart)}`);
+        if (tgtSpace === spaceId) {
+            await robin(`/events/${encodeURIComponent(eventId)}`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                    start: { date_time: isoLocal(start), time_zone: site.tz },
+                    end: { date_time: isoLocal(end), time_zone: site.tz },
+                }),
+            });
+            toast(`Moved to ${fmtTime(newStart)}`);
+        } else {
+            // PATCH ignores space_id, so a room change is rebook + cancel. A dragged
+            // occurrence of a series becomes a standalone booking in the new room.
+            const s2 = spaces.find((x) => x.id === tgtSpace);
+            const d = (await robin(`/events/${encodeURIComponent(eventId)}`)).data;
+            const invitees = (d.invitees || [])
+                .filter((i) => !i.is_resource && i.email)
+                .map((i) => ({ email: i.email }));
+            if (!invitees.length) invitees.push({ email: auth.email });
+            await robin(`/events`, {
+                method: "POST",
+                body: JSON.stringify({
+                    title: d.title || "Meeting",
+                    ...(d.description ? { description: d.description } : {}),
+                    space_id: tgtSpace,
+                    calendar_type: s2.cal.type,
+                    calendar_mailbox_address: s2.cal.mailbox,
+                    invitees,
+                    visibility: d.visibility === "private" ? "private" : "default",
+                    start: { date_time: isoLocal(start), time_zone: site.tz },
+                    end: { date_time: isoLocal(end), time_zone: site.tz },
+                }),
+            });
+            await robin(`/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+            toast(`Moved to ${s2.name} at ${fmtTime(newStart)}`);
+            reloadSpace(tgtSpace);
+        }
         reloadSpace(spaceId);
     } catch (err) {
         toast("Move failed: " + err.message);
@@ -448,8 +541,12 @@ function positionPop(el) {
     const pop = $("pop");
     const r = el.getBoundingClientRect();
     pop.style.display = "flex";
-    pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - 320)) + "px";
-    pop.style.top = Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 300)) + "px";
+    // measure the real rendered size (the photo reserves height via aspect-ratio)
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - w - 8)) + "px";
+    let top = r.bottom + 4;
+    if (top + h > window.innerHeight - 8) top = r.top - h - 4; // flip above the cell
+    pop.style.top = Math.max(8, Math.min(top, window.innerHeight - h - 8)) + "px";
 }
 
 function hidePop() { $("pop").style.display = "none"; }

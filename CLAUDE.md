@@ -62,6 +62,8 @@ probing; Robin's public docs don't cover most of this.
   the invitee is ignored (the resource calendar stays organizer).
 - **Edit**: `PATCH /events/{id}` with any subset of `{title, description, invitees, visibility,
   start, end, recurrence}` (send `start` and `end` together when changing times). No PUT (405).
+  `space_id`/`calendar_mailbox_address` in a PATCH are silently ignored (200, unchanged) — moving
+  an event to another room requires POST new + DELETE old.
   `recurrence` PATCHes only on the series master id — an instance id 400s; `recurrence: null`
   removes the rule, and adding a rule to a plain event turns it into a series. `description`
   works on POST/PATCH and comes back in both GET and the events list.
