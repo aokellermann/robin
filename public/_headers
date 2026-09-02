@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src https://storage.googleapis.com; connect-src https://api.robinpowered.com https://atlas.services.robinpowered.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src https://storage.googleapis.com https://static.robinpowered.com; connect-src https://api.robinpowered.com https://atlas.services.robinpowered.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer

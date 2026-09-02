@@ -148,7 +148,7 @@ async function loadSpaces() {
 async function fetchSpaces() {
     const json = await robin(`/locations/${site.loc_id}/spaces?per_page=200&include=calendar`);
     const list = json.data
-        .filter((s) => (s.behaviors || []).includes("scheduling"))
+        .filter((s) => (s.behaviors || []).includes("scheduling") && (s.type !== "other" || s.calendar))
         .map((s) => ({
             id: +s.id,
             name: s.name,
@@ -156,6 +156,7 @@ async function fetchSpaces() {
             type: s.type,
             level_id: s.level_id == null ? null : +s.level_id,
             note: (s.description || "").trim() || undefined,
+            img: s.image || undefined,
             cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -407,6 +408,7 @@ function openBookPop(td, spaceId, slot) {
     if (!durations.length) return;
     const pop = $("pop");
     pop.innerHTML = `
+        ${s.img ? `<img class="thumb" src="${esc(s.img)}" alt="">` : ""}
         <div class="head">${esc(s.name)}</div>
         <div class="sub">${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${fmtTime(startMin)}</div>
         ${s.note ? `<div class="sub roomnote">${esc(s.note)}</div>` : ""}
