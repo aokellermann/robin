@@ -210,7 +210,7 @@ async function loadDay(onlyMissing = false) {
             const json = await robin(`/spaces/${s.id}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
             if (seq !== fetchSeq) return;
             events.set(s.id, (json.data || []).map((e) => ({
-            desc: e.description || "",
+            desc: plainText(e.description),
                 id: e.id,
                 title: e.title || "Reserved",
                 startMin: minutesOfDay(e.start),
@@ -310,7 +310,7 @@ function rowCells(s) {
             const endSlot = Math.min(SLOTS, Math.ceil((ev.endMin - DAY_START * 60) / STEP_MIN));
             const span = Math.max(1, endSlot - i);
             const past = isToday && DAY_START * 60 + endSlot * STEP_MIN <= nowMin;
-            html += `<td class="slot busy${ev.mine ? " mine" : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}</td>`;
+            html += `<td class="slot busy${ev.mine ? ' mine" draggable="true' : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}</td>`;
             i = endSlot;
         } else {
             const past = isToday && m0 + STEP_MIN <= nowMin;
@@ -360,6 +360,15 @@ function roomTip(s) {
     return [s.note, s.amenities?.length ? s.amenities.join(", ") : null].filter(Boolean).join("\n");
 }
 
+// Google-sourced event descriptions can be HTML; render them as plain text.
+// DOMParser never executes scripts or loads resources.
+function plainText(html) {
+    if (!html) return "";
+    if (!/[<&]/.test(html)) return html;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return (doc.body.textContent || "").trim();
+}
+
 function esc(x) {
     return String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -373,6 +382,61 @@ $("grid").addEventListener("click", (e) => {
     const spaceId = +tr.dataset.space;
     if (td.dataset.slot !== undefined) openBookPop(td, spaceId, +td.dataset.slot);
     else if (td.dataset.event && td.classList.contains("mine")) openEventPop(td, spaceId, td.dataset.event);
+});
+
+// drag one of your own bookings to a free slot in the same row to reschedule it
+let dragEv = null;
+$("grid").addEventListener("dragstart", (e) => {
+    const td = e.target.closest("td.busy.mine");
+    if (!td) { e.preventDefault(); return; }
+    dragEv = { spaceId: +td.closest("tr[data-space]").dataset.space, eventId: td.dataset.event };
+    e.dataTransfer.effectAllowed = "move";
+});
+$("grid").addEventListener("dragover", (e) => {
+    const td = e.target.closest("td.slot");
+    if (!td || td.classList.contains("busy") || !dragEv) return;
+    if (+td.closest("tr[data-space]").dataset.space !== dragEv.spaceId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    td.classList.add("droptgt");
+});
+$("grid").addEventListener("dragleave", (e) => {
+    const td = e.target.closest("td.slot");
+    if (td) td.classList.remove("droptgt");
+});
+$("grid").addEventListener("dragend", () => {
+    dragEv = null;
+    for (const t of document.querySelectorAll(".droptgt")) t.classList.remove("droptgt");
+});
+$("grid").addEventListener("drop", async (e) => {
+    const td = e.target.closest("td.slot");
+    if (!td || td.classList.contains("busy") || !dragEv) return;
+    e.preventDefault();
+    td.classList.remove("droptgt");
+    const { spaceId, eventId } = dragEv;
+    dragEv = null;
+    const ev = (events.get(spaceId) || []).find((x) => x.id === eventId);
+    if (!ev) return;
+    const dur = ev.endMin - ev.startMin;
+    const newStart = DAY_START * 60 + +td.dataset.slot * STEP_MIN;
+    if (newStart === ev.startMin) return;
+    const clash = (events.get(spaceId) || []).some((x) => x.id !== eventId && x.startMin < newStart + dur && x.endMin > newStart);
+    if (clash) { toast("That time overlaps another booking"); return; }
+    const start = new Date(day); start.setHours(0, newStart, 0, 0);
+    const end = new Date(start.getTime() + dur * 60000);
+    try {
+        await robin(`/events/${encodeURIComponent(eventId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+                start: { date_time: isoLocal(start), time_zone: site.tz },
+                end: { date_time: isoLocal(end), time_zone: site.tz },
+            }),
+        });
+        toast(`Moved to ${fmtTime(newStart)}`);
+        reloadSpace(spaceId);
+    } catch (err) {
+        toast("Move failed: " + err.message);
+    }
 });
 
 document.addEventListener("click", (e) => {
@@ -434,17 +498,42 @@ function initChips(initial) {
         else input.classList.remove("bad");
     };
     input.onblur = commit;
+    input.oninput = () => { if (directory.some((u) => u.email === input.value)) commit(); };
     box.onclick = (e) => { if (e.target === box) input.focus(); };
     render();
     return { get: () => (commit() ? [...emails] : null) };
 }
 
-const chipsHtml = '<div class="chips" id="p-att"><input id="p-att-in" placeholder="Add attendee…"></div>';
+const chipsHtml = '<div class="chips" id="p-att"><input id="p-att-in" list="people" placeholder="Add attendee…"></div>';
 
 function inviteesFrom(emails) {
     return [auth.email, ...emails]
         .filter((e, i, a) => a.findIndex((x) => x.toLowerCase() === e.toLowerCase()) === i)
         .map((email) => ({ email }));
+}
+
+// ---------- org directory (via the Worker's /api/users GraphQL proxy) ----------
+let directory = [];
+
+function fillPeopleList() {
+    $("people").innerHTML = directory.map((u) => `<option value="${esc(u.email)}">${esc(u.name)}</option>`).join("");
+}
+
+async function loadDirectory() {
+    try { directory = JSON.parse(localStorage.getItem(`robin.dir:${site.org_id}`)) || []; } catch {}
+    if (directory.length) fillPeopleList();
+    try {
+        const res = await fetch("/api/users", {
+            headers: { "Authorization": "Access-Token " + auth.token, "Tenant-Id": String(site.org_id) },
+        });
+        if (!res.ok) return;
+        const fresh = (await res.json()).users || [];
+        if (fresh.length && JSON.stringify(fresh) !== JSON.stringify(directory)) {
+            directory = fresh;
+            localStorage.setItem(`robin.dir:${site.org_id}`, JSON.stringify(directory));
+            fillPeopleList();
+        }
+    } catch {}
 }
 
 // ---------- recurrence controls ----------
@@ -590,7 +679,7 @@ function openEventPop(td, spaceId, eventId) {
     pop.innerHTML = `
         <div class="head">${esc(ev.title)}</div>
         <div class="sub">${fmtTime(ev.startMin)} – ${fmtTime(ev.endMin)}</div>
-        ${ev.desc ? `<div class="sub">${esc(ev.desc)}</div>` : ""}
+        ${ev.desc ? `<div class="sub desc">${esc(ev.desc)}</div>` : ""}
         <button id="p-edit">Edit${isInstance ? " this occurrence" : ""}</button>
         <button class="danger" id="p-del">${isInstance ? "Cancel this occurrence" : "Cancel booking"}</button>
         ${isInstance ? '<button class="danger" id="p-delseries">Cancel whole series</button>' : ""}
@@ -644,7 +733,7 @@ async function openEditPop(el, spaceId, eventId) {
     pop.innerHTML = `
         <div class="head">Edit — ${esc(s.name)}${isInstance ? '<span class="sub"> (this occurrence)</span>' : ""}</div>
         <input id="p-title" placeholder="Title" value="${esc(d.title || "")}">
-        <textarea id="p-desc" rows="2" placeholder="Description (optional)">${esc(d.description || "")}</textarea>
+        <textarea id="p-desc" rows="2" placeholder="Description (optional)">${esc(plainText(d.description))}</textarea>
         ${chipsHtml}
         <div class="row">
             <select id="p-start">${starts.map((m) => `<option value="${m}"${m === startMin ? " selected" : ""}>${fmtTime(m)}</option>`).join("")}</select>
@@ -703,7 +792,7 @@ async function reloadSpace(spaceId) {
     try {
         const json = await robin(`/spaces/${spaceId}/events?per_page=100&after=${encodeURIComponent(after)}&before=${encodeURIComponent(before)}`);
         events.set(spaceId, (json.data || []).map((e) => ({
-            desc: e.description || "",
+            desc: plainText(e.description),
             id: e.id,
             title: e.title || "Reserved",
             startMin: minutesOfDay(e.start),
@@ -918,6 +1007,7 @@ async function start() {
     renderView();
     loadDay();
     loadAmenities();
+    loadDirectory();
 }
 $("sitename").onclick = switchSite;
 auth = loadAuth();

@@ -140,7 +140,8 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     white-space: nowrap;
     text-overflow: ellipsis;
 }
-#grid td.busy.mine { background: var(--mine-bg); color: var(--mine); cursor: pointer; font-weight: 600; }
+#grid td.busy.mine { background: var(--mine-bg); color: var(--mine); cursor: grab; font-weight: 600; }
+#grid td.droptgt { background: var(--free-hover); box-shadow: inset 0 0 0 2px var(--accent); }
 #grid td.past { opacity: 0.45; }
 #grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
 #grid th.hourstart, #grid td.hourstart { border-left: 2px solid var(--muted); }
@@ -161,7 +162,8 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 }
 #pop .head { font-weight: 700; }
 #pop img.thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; }
-#pop .sub { color: var(--muted); font-size: 12px; }
+#pop .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+#pop .desc { max-height: 5.5em; overflow-y: auto; }
 #pop .row { display: flex; gap: 6px; }
 #pop .row > * { flex: 1; }
 #pop .err { color: var(--danger); font-size: 12px; min-height: 1em; margin: 0; }

@@ -3,8 +3,12 @@
 Fast generic room-booking frontend for Robin (robinpowered.com), replacing the slow
 dashboard.robinpowered.com UI. Works with any Robin org/building — the user's organization and
 location are discovered from the API after login. Static single-page app served by a Cloudflare
-Worker (assets only, no server code) at robin.aok.site — the browser talks to Robin's API
-directly (CORS is `*`).
+Worker at robin.aok.site — the browser talks to Robin's REST API directly (CORS is `*`). The
+Worker has one server route, `GET /api/users` (`worker.js`): a proxy for the GraphQL people
+directory, which is CORS-allowlisted to Robin's own dashboards and so unreachable from the
+browser. It forwards the caller's own `Authorization`/`Tenant-Id` headers upstream (persisted
+query `getPagedUsers`, hash in worker.js, captured from the dashboard's own requests) — no
+credentials live in the Worker.
 
 ## Commands
 
@@ -91,8 +95,11 @@ probing; Robin's public docs don't cover most of this.
   `fill`, which background overrides can't touch. A plain `<img>`/`<canvas>` with a transparent
   overlay SVG gets its background repainted dark and the floorplan becomes invisible.
 - GraphQL (`federation-gateway.robinpowered.com/graphql`) exists (persisted queries, used by the
-  people directory) but has introspection disabled; the REST endpoints above are the
-  usable surface for booking.
+  people directory) but has introspection disabled and its CORS allowlist covers
+  only Robin's own origins, so the browser can't call it — hence the Worker proxy. REST's
+  `/organizations/{id}/users` is 403 for non-admin members; the GraphQL persisted query is the
+  only member-accessible directory. Event descriptions synced from Google Calendar are HTML —
+  render via DOMParser textContent, never innerHTML.
 
 ## App architecture
 

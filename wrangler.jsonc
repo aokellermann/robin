@@ -1,6 +1,7 @@
 {
     "name": "robin",
     "compatibility_date": "2026-05-01",
+    "main": "worker.js",
     "routes": [
         {
             "pattern": "robin.aok.site",
