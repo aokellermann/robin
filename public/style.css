@@ -1,0 +1,227 @@
+:root {
+    --bg: #f6f5f2;
+    --panel: #ffffff;
+    --ink: #1c1b19;
+    --muted: #77746c;
+    --line: #e4e2dc;
+    --free-hover: #dcefe2;
+    --busy: #d9d5cc;
+    --busy-ink: #55524b;
+    --mine: #2f6f4f;
+    --mine-bg: #cfe8d8;
+    --accent: #2f6f4f;
+    --danger: #a33b2e;
+    --now: #c2542e;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #191816;
+        --panel: #211f1d;
+        --ink: #ece9e2;
+        --muted: #94908a;
+        --line: #35322e;
+        --free-hover: #24382c;
+        --busy: #3a3733;
+        --busy-ink: #b3afa7;
+        --mine: #7fc79e;
+        --mine-bg: #234534;
+        --accent: #7fc79e;
+        --danger: #e0705f;
+        --now: #e0764a;
+    }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+button {
+    font: inherit;
+    color: inherit;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+}
+button.danger { color: var(--danger); }
+input, select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+/* login */
+#login {
+    max-width: 320px;
+    margin: 18vh auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#login h1 { font-size: 18px; margin: 0 0 6px; }
+#login .err { color: var(--danger); min-height: 1.2em; margin: 0; }
+
+/* app chrome */
+#app { display: none; height: 100%; flex-direction: column; }
+header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    flex-wrap: wrap;
+}
+header .title { font-weight: 700; margin-right: 8px; }
+header .spacer { flex: 1; }
+header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
+header .who { color: var(--muted); font-size: 12px; }
+#status { color: var(--muted); font-size: 12px; min-width: 70px; }
+
+/* grid */
+#gridwrap { flex: 1; overflow: auto; position: relative; }
+table#grid { border-collapse: collapse; min-width: 100%; }
+#grid th, #grid td { border: 1px solid var(--line); padding: 0; }
+#grid thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--panel);
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 4px 2px;
+    min-width: 44px;
+}
+#grid td.room, #grid th.room {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--panel);
+    text-align: left;
+    padding: 6px 10px;
+    white-space: nowrap;
+    min-width: 150px;
+}
+#grid thead th.room { z-index: 4; }
+#grid td.room .cap { color: var(--muted); font-size: 11px; margin-left: 6px; }
+#grid td.slot { height: 34px; cursor: pointer; position: relative; }
+#grid td.slot:hover { background: var(--free-hover); }
+#grid td.busy {
+    background: var(--busy);
+    cursor: default;
+    overflow: hidden;
+    font-size: 11px;
+    color: var(--busy-ink);
+    padding: 2px 4px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+#grid td.busy.mine { background: var(--mine-bg); color: var(--mine); cursor: pointer; font-weight: 600; }
+#grid td.past { opacity: 0.45; }
+#grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
+#grid th.hourstart, #grid td.hourstart { border-left: 2px solid var(--muted); }
+
+/* popover */
+#pop {
+    position: fixed;
+    z-index: 10;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    padding: 14px;
+    width: 260px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+}
+#pop .head { font-weight: 700; }
+#pop .sub { color: var(--muted); font-size: 12px; }
+#pop .row { display: flex; gap: 6px; }
+#pop .row > * { flex: 1; }
+#pop .err { color: var(--danger); font-size: 12px; min-height: 1em; margin: 0; }
+#pop label.chk { display: flex; align-items: center; gap: 6px; }
+#pop label.chk input { margin: 0; }
+#p-count { max-width: 70px; }
+
+/* amenity filter dropdown */
+#amenfilter { position: relative; }
+#amenfilter summary {
+    list-style: none;
+    cursor: pointer;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+    user-select: none;
+}
+#amenfilter[open] summary, #amenfilter summary.active { border-color: var(--accent); color: var(--accent); }
+#amenfilter .menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    padding: 8px;
+    min-width: 180px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+#amenfilter .menu label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+#amenfilter .menu label:hover { background: var(--free-hover); }
+
+/* map view */
+#mapwrap { flex: 1; overflow: auto; display: none; flex-direction: column; }
+#mapbar { display: flex; gap: 6px; padding: 8px 14px; align-items: center; flex-wrap: wrap; }
+#mapbar button.floor.sel { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+#mapbox { flex: 1; min-height: 0; margin: 0 14px 14px; display: flex; align-items: center; justify-content: center; }
+#mapinner { position: relative; max-width: 100%; max-height: 100%; width: 100%; }
+#mapinner svg { display: block; width: 100%; height: auto; }
+#mapbox polygon { cursor: pointer; }
+#mapbox polygon.free { fill: color-mix(in srgb, var(--accent) 45%, transparent); stroke: var(--accent); }
+#mapbox polygon.busy { fill: color-mix(in srgb, var(--danger) 40%, transparent); stroke: var(--danger); cursor: default; }
+#mapbox polygon.dim { fill: color-mix(in srgb, var(--muted) 20%, transparent); stroke: var(--muted); cursor: default; }
+/* floorplan backing rect is always white, so labels are always dark */
+#mapbox text { fill: #2c2a27; pointer-events: none; text-anchor: middle; }
+
+#toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 8px;
+    padding: 8px 16px;
+    display: none;
+    z-index: 20;
+}
