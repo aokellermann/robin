@@ -330,8 +330,31 @@ async function fetchSpaces() {
 async function refreshSpacesInBackground() {
     try {
         const fresh = await fetchSpaces();
+        // keep already-known amenities so the background refresh doesn't wipe them
+        for (const s of fresh) {
+            const old = spaces.find((x) => x.id === s.id);
+            if (old?.amenities) s.amenities = old.amenities;
+        }
         if (JSON.stringify(fresh) !== JSON.stringify(spaces)) { spaces = fresh; renderGrid(); loadDay(); }
     } catch {}
+}
+
+// Amenities only come back from the per-space endpoint (include=amenities on the
+// list returns []). Fetched once, cached with the spaces list.
+async function loadAmenities() {
+    const missing = spaces.filter((s) => !s.amenities);
+    if (!missing.length) return;
+    await Promise.all(missing.map(async (s) => {
+        try {
+            const json = await robin(`/spaces/${s.id}/amenities`);
+            s.amenities = (json.data || []).map((a) => a.name).filter(Boolean);
+        } catch {}
+    }));
+    localStorage.setItem("robin.spaces", JSON.stringify(spaces));
+    for (const s of spaces) {
+        const td = document.querySelector(`tr[data-space="${s.id}"] td.room`);
+        if (td && s.amenities?.length) td.title = s.amenities.join(", ");
+    }
 }
 
 function dayRange() {
@@ -420,7 +443,7 @@ function rowCells(s) {
     const now = new Date();
     const isToday = now.toDateString() === day.toDateString();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    let html = `<td class="room">${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span></td>`;
+    let html = `<td class="room"${s.amenities?.length ? ` title="${esc(s.amenities.join(", "))}"` : ""}>${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span></td>`;
     let i = 0;
     while (i < SLOTS) {
         const m0 = DAY_START * 60 + i * STEP_MIN;
@@ -501,13 +524,27 @@ function openBookPop(td, spaceId, slot) {
     pop.innerHTML = `
         <div class="head">${esc(s.name)}</div>
         <div class="sub">${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${fmtTime(startMin)}</div>
+        ${s.amenities?.length ? `<div class="sub">${esc(s.amenities.join(" · "))}</div>` : ""}
         <input id="p-title" placeholder="Title" value="Meeting">
+        <input id="p-att" placeholder="Attendees (emails, comma-separated)">
+        <div class="row">
+            <select id="p-rep">
+                <option value="">Does not repeat</option>
+                <option value="FREQ=DAILY">Daily</option>
+                <option value="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR">Every weekday</option>
+                <option value="FREQ=WEEKLY">Weekly</option>
+                <option value="FREQ=MONTHLY">Monthly</option>
+            </select>
+            <input id="p-count" type="number" min="2" max="52" value="4" title="Number of occurrences" style="display:none; max-width:70px">
+        </div>
+        <label style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="p-priv" style="margin:0">Private</label>
         <div class="row">
             <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === 30 ? " selected" : ""}>${d} min</option>`).join("")}</select>
             <button class="primary" id="p-book">Book</button>
         </div>
         <p class="err" id="p-err"></p>`;
     positionPop(td);
+    $("p-rep").onchange = () => { $("p-count").style.display = $("p-rep").value ? "" : "none"; };
     $("p-title").select();
     $("p-book").onclick = () => book(spaceId, startMin);
     pop.onkeydown = (e) => { if (e.key === "Enter") book(spaceId, startMin); if (e.key === "Escape") hidePop(); };
@@ -520,6 +557,13 @@ async function book(spaceId, startMin) {
     const end = new Date(start.getTime() + dur * 60000);
     $("p-book").disabled = true;
     $("p-err").textContent = "";
+    const attendees = $("p-att").value.split(",").map((e) => e.trim()).filter(Boolean);
+    const bad = attendees.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (bad) { $("p-err").textContent = `Invalid email: ${bad}`; $("p-book").disabled = false; return; }
+    const invitees = [auth.email, ...attendees]
+        .filter((e, i, a) => a.findIndex((x) => x.toLowerCase() === e.toLowerCase()) === i)
+        .map((email) => ({ email }));
+    const rep = $("p-rep").value;
     try {
         const s = spaces.find((x) => x.id === spaceId);
         await robin(`/events`, {
@@ -529,13 +573,15 @@ async function book(spaceId, startMin) {
                 space_id: spaceId,
                 calendar_type: s.cal.type,
                 calendar_mailbox_address: s.cal.mailbox,
-                invitees: [{ email: auth.email }],
+                invitees,
+                visibility: $("p-priv").checked ? "private" : "default",
+                ...(rep ? { recurrence: [`RRULE:${rep};COUNT=${Math.max(2, Math.min(52, +$("p-count").value || 4))}`] } : {}),
                 start: { date_time: isoLocal(start), time_zone: TZ },
                 end: { date_time: isoLocal(end), time_zone: TZ },
             }),
         });
         hidePop();
-        toast(`Booked ${spaces.find((s) => s.id === spaceId).name} at ${fmtTime(startMin)}`);
+        toast(`Booked ${spaces.find((s) => s.id === spaceId).name} at ${fmtTime(startMin)}${rep ? " (recurring)" : ""}`);
         reloadSpace(spaceId);
     } catch (e) {
         $("p-err").textContent = e.message;
@@ -546,25 +592,29 @@ async function book(spaceId, startMin) {
 function openEventPop(td, spaceId, eventId) {
     const ev = (events.get(spaceId) || []).find((e) => e.id === eventId);
     if (!ev) return;
+    const isInstance = eventId.includes("_");
     const pop = $("pop");
     pop.innerHTML = `
         <div class="head">${esc(ev.title)}</div>
         <div class="sub">${fmtTime(ev.startMin)} – ${fmtTime(ev.endMin)}</div>
-        <button class="danger" id="p-del">Cancel booking</button>
+        <button class="danger" id="p-del">${isInstance ? "Cancel this occurrence" : "Cancel booking"}</button>
+        ${isInstance ? '<button class="danger" id="p-delseries">Cancel whole series</button>' : ""}
         <p class="err" id="p-err"></p>`;
     positionPop(td);
-    $("p-del").onclick = async () => {
-        $("p-del").disabled = true;
+    const del = async (id, msg) => {
         try {
-            await robin(`/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+            await robin(`/events/${encodeURIComponent(id)}`, { method: "DELETE" });
             hidePop();
-            toast("Booking cancelled");
+            toast(msg);
             reloadSpace(spaceId);
         } catch (e) {
             $("p-err").textContent = e.message;
             $("p-del").disabled = false;
+            const ps = $("p-delseries"); if (ps) ps.disabled = false;
         }
     };
+    $("p-del").onclick = () => { $("p-del").disabled = true; del(eventId, "Booking cancelled"); };
+    if (isInstance) $("p-delseries").onclick = () => { $("p-delseries").disabled = true; del(eventId.split("_")[0], "Series cancelled"); };
 }
 
 async function reloadSpace(spaceId) {
@@ -617,6 +667,7 @@ async function start() {
     await loadSpaces();
     renderGrid();
     loadDay();
+    loadAmenities();
 }
 auth = loadAuth();
 if (auth) start();

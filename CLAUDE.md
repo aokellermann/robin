@@ -43,7 +43,17 @@ probing; Robin's public docs don't cover most of this.
   calendar invite/email is sent. With the invitee it shows in `/me/events` (which is what the
   dashboard's schedule/user view reflects) and Google emails the invite. `is_organizer: true` in
   the invitee is ignored (the resource calendar stays organizer).
-- **Cancel**: `DELETE /events/{id}` (works for own events).
+- **Cancel**: `DELETE /events/{id}` (works for own events). For recurring series, instance ids
+  look like `{masterId}_{YYYYMMDDTHHMMSSZ}`; DELETE on an instance id cancels just that
+  occurrence, DELETE on the master id cancels the whole series.
+- **Recurring**: pass `recurrence: ["RRULE:FREQ=WEEKLY;COUNT=3"]` (standard RRULE) in the
+  `POST /events` body; instances materialize on the room calendar within a couple seconds.
+- **Private**: `visibility: "private"` in the `POST /events` body (default `"default"`).
+- **Extra attendees**: more entries in `invitees`. Only org-member emails are retained by Robin
+  (an external gmail was silently dropped from the invitee list); `is_organizer: true` is ignored.
+- **Amenities**: `GET /spaces/{id}/amenities` per space (one request each; the app caches them in
+  the spaces localStorage blob). Gotcha: `include=amenities` on the spaces *list* returns `[]`
+  for every space even though the per-space endpoint has data — don't "simplify" to it.
 - **`GET /free-busy/spaces` is broken** (500 for every parameter format tried) — don't use it;
   that's why the app fans out per-space event fetches instead.
 - **CORS**: `access-control-allow-origin: *` on api.robinpowered.com, so no proxy is needed.
