@@ -155,6 +155,7 @@ async function fetchSpaces() {
             capacity: +s.capacity || 0,
             type: s.type,
             level_id: s.level_id == null ? null : +s.level_id,
+            note: (s.description || "").trim() || undefined,
             cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -185,10 +186,7 @@ async function loadAmenities() {
         } catch {}
     }));
     localStorage.setItem(`robin.spaces.v2:${site.loc_id}`, JSON.stringify(spaces));
-    for (const s of spaces) {
-        const td = document.querySelector(`tr[data-space="${s.id}"] td.room`);
-        if (td && s.amenities?.length) td.title = s.amenities.join(", ");
-    }
+    if (view === "grid") for (const s of spaces) renderRow(s.id);
     buildAmenMenu();
 }
 
@@ -298,7 +296,9 @@ function rowCells(s) {
     const now = new Date();
     const isToday = now.toDateString() === day.toDateString();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    let html = `<td class="room"${s.amenities?.length ? ` title="${esc(s.amenities.join(", "))}"` : ""}>${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span></td>`;
+    const tip = roomTip(s);
+    const amen = amenEmojis(s);
+    let html = `<td class="room"${tip ? ` title="${esc(tip)}"` : ""}>${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span>${s.note ? '<span class="note">&#9432;</span>' : ""}${amen ? `<span class="amen">${amen}</span>` : ""}</td>`;
     let i = 0;
     while (i < SLOTS) {
         const m0 = DAY_START * 60 + i * STEP_MIN;
@@ -324,6 +324,38 @@ function renderRow(spaceId) {
     const tr = document.querySelector(`tr[data-space="${spaceId}"]`);
     const s = spaces.find((x) => x.id === spaceId);
     if (tr && s) tr.innerHTML = rowCells(s);
+}
+
+const AMEN_EMOJI = {
+    "whiteboard": "\u{1F4DD}",
+    "television": "\u{1F4FA}",
+    "video conferencing": "\u{1F3A5}",
+    "speakers": "\u{1F50A}",
+    "google chromecast": "\u{1F4E1}",
+    "couch": "\u{1F6CB}\uFE0F",
+    "bed": "\u{1F6CF}\uFE0F",
+    "pillows": "\u{1F6CC}",
+    "blankets": "\u{1F9F6}",
+    "projector": "\u{1F4FD}\uFE0F",
+    "table": "\u{1FA91}",
+    "weights": "\u{1F3CB}\uFE0F",
+    "computer": "\u{1F4BB}",
+    "rowing machine": "\u{1F6A3}",
+    "foam roller": "\u{1F300}",
+    "yoga mat": "\u{1F9D8}",
+};
+
+function amenEmojis(s) {
+    return (s.amenities || [])
+        .map((a) => {
+            const e = AMEN_EMOJI[a.toLowerCase()];
+            return e ? `<span title="${esc(a)}">${e}</span>` : "";
+        })
+        .join("");
+}
+
+function roomTip(s) {
+    return [s.note, s.amenities?.length ? s.amenities.join(", ") : null].filter(Boolean).join("\n");
 }
 
 function esc(x) {
@@ -377,6 +409,7 @@ function openBookPop(td, spaceId, slot) {
     pop.innerHTML = `
         <div class="head">${esc(s.name)}</div>
         <div class="sub">${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${fmtTime(startMin)}</div>
+        ${s.note ? `<div class="sub roomnote">${esc(s.note)}</div>` : ""}
         ${s.amenities?.length ? `<div class="sub">${esc(s.amenities.join(" · "))}</div>` : ""}
         <input id="p-title" placeholder="Title" value="Meeting">
         <input id="p-att" placeholder="Attendees (emails, comma-separated)">
@@ -683,7 +716,7 @@ function renderMap() {
         const cls = !visible.has(s.id) || !s.cal ? "dim" : busy ? "busy" : "free";
         const cx = px(ring.reduce((a, p) => a + p[0], 0) / ring.length);
         const cy = py(ring.reduce((a, p) => a + p[1], 0) / ring.length);
-        const tip = `${s.name}${s.capacity ? ` (${s.capacity}p)` : ""}${s.amenities?.length ? " — " + s.amenities.join(", ") : ""}`;
+        const tip = `${s.name}${s.capacity ? ` (${s.capacity}p)` : ""}${s.note ? `\n${s.note}` : ""}${s.amenities?.length ? "\n" + s.amenities.join(", ") : ""}`;
         svg += `<polygon class="${cls}" points="${pts}" data-space="${s.id}" stroke-width="${W / 900}"><title>${esc(tip)}</title></polygon>`;
         svg += `<text x="${cx}" y="${cy}">${esc(s.name)}</text>`;
     }

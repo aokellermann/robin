@@ -125,6 +125,9 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 }
 #grid thead th.room { z-index: 4; }
 #grid td.room .cap { color: var(--muted); font-size: 11px; margin-left: 6px; }
+#grid td.room .note { color: var(--muted); font-size: 11px; margin-left: 4px; cursor: help; }
+#grid td.room .amen { margin-left: 6px; font-size: 11px; cursor: default; }
+#pop .roomnote { color: var(--now); }
 #grid td.slot { height: 34px; cursor: pointer; position: relative; }
 #grid td.slot:hover { background: var(--free-hover); }
 #grid td.busy {
