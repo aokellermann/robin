@@ -529,6 +529,7 @@ async function book(spaceId, startMin) {
                 space_id: spaceId,
                 calendar_type: s.cal.type,
                 calendar_mailbox_address: s.cal.mailbox,
+                invitees: [{ email: auth.email }],
                 start: { date_time: isoLocal(start), time_zone: TZ },
                 end: { date_time: isoLocal(end), time_zone: TZ },
             }),

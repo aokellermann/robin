@@ -38,6 +38,11 @@ probing; Robin's public docs don't cover most of this.
   (`"google"`) and `calendar_mailbox_address` = its `space_resource_email`
   (`...@resource.calendar.google.com`). Returns 201 with the caller as `creator_id`. Rooms are
   Google resource calendars synced by Robin's scheduler account.
+  **You must also pass `invitees: [{email: <your email>}]`** — without it the event exists only on
+  the room's calendar: it never appears in the user's Robin schedule (`/me/events`), and no
+  calendar invite/email is sent. With the invitee it shows in `/me/events` (which is what the
+  dashboard's schedule/user view reflects) and Google emails the invite. `is_organizer: true` in
+  the invitee is ignored (the resource calendar stays organizer).
 - **Cancel**: `DELETE /events/{id}` (works for own events).
 - **`GET /free-busy/spaces` is broken** (500 for every parameter format tried) — don't use it;
   that's why the app fans out per-space event fetches instead.
