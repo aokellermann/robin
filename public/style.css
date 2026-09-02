@@ -63,8 +63,8 @@ input, select {
     padding: 6px 8px;
 }
 
-/* login */
-#login {
+/* login + site picker */
+#login, #site {
     max-width: 320px;
     margin: 18vh auto;
     background: var(--panel);
@@ -75,8 +75,11 @@ input, select {
     flex-direction: column;
     gap: 10px;
 }
-#login h1 { font-size: 18px; margin: 0 0 6px; }
+#login h1, #site h1 { font-size: 18px; margin: 0 0 6px; }
 #login .err { color: var(--danger); min-height: 1.2em; margin: 0; }
+#site[hidden] { display: none; }
+#site-list { display: flex; flex-direction: column; gap: 8px; }
+#site-list button { text-align: left; padding: 10px 12px; }
 
 /* app chrome */
 #app { display: none; height: 100%; flex-direction: column; }
@@ -89,7 +92,7 @@ header {
     background: var(--panel);
     flex-wrap: wrap;
 }
-header .title { font-weight: 700; margin-right: 8px; }
+header .title { font-weight: 700; margin-right: 8px; border: none; background: none; padding: 0; }
 header .spacer { flex: 1; }
 header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
 header .who { color: var(--muted); font-size: 12px; }

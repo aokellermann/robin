@@ -1,8 +1,5 @@
 "use strict";
 const API = "https://api.robinpowered.com/v1.0";
-const ORG_ID = 0; // your Robin org id
-const LOCATION_ID = 0; // your Robin location id
-const TZ = "America/Los_Angeles";
 const DAY_START = 8;   // 8:00
 const DAY_END = 19;    // 19:00
 const STEP_MIN = 15;
@@ -10,12 +7,21 @@ const SLOTS = (DAY_END - DAY_START) * 60 / STEP_MIN;
 
 const $ = (id) => document.getElementById(id);
 let auth = null;        // {token, email, account_id, expire_at}
+let site = loadSite();  // {org_id, org_name, loc_id, loc_name, tz}
 let spaces = [];        // bookable spaces
 let day = startOfToday();
 let events = new Map(); // space id -> [{startMin, endMin, title, id, mine}]
 let fetchSeq = 0;
 
 function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+
+function loadSite() {
+    try {
+        const s = JSON.parse(localStorage.getItem("robin.site"));
+        if (s?.org_id && s?.loc_id) return s;
+    } catch {}
+    return null;
+}
 
 function loadAuth() {
     try {
@@ -30,7 +36,7 @@ async function robin(path, opts = {}) {
         ...opts,
         headers: {
             "Authorization": "Access-Token " + auth.token,
-            "Tenant-Id": String(ORG_ID),
+            ...(site ? { "Tenant-Id": String(site.org_id) } : {}),
             ...(opts.body ? { "Content-Type": "application/json" } : {}),
             ...(opts.headers || {}),
         },
@@ -56,7 +62,7 @@ async function doLogin() {
                 "Authorization": "Basic " + btoa(email + ":" + pass),
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ remember_me: true, organization: ORG_ID }),
+            body: JSON.stringify({ remember_me: true }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.meta?.message || "Login failed");
@@ -78,13 +84,61 @@ async function doLogin() {
 function logout() {
     localStorage.removeItem("robin.auth");
     auth = null;
+    $("site").hidden = true;
     $("app").style.display = "none";
     $("login").style.display = "flex";
 }
 
+// ---------- site (org + building) selection ----------
+async function pickSite() {
+    const orgs = (await robin("/me/organizations")).data.filter((o) => !o.disabled_at);
+    if (!orgs.length) throw new Error("Your account belongs to no Robin organization");
+    const org = orgs.length === 1 ? orgs[0] : await choose("Choose an organization", orgs);
+    site = { org_id: +org.id, org_name: org.name };  // partial: lets robin() send Tenant-Id
+    const locs = (await robin(`/organizations/${org.id}/locations?per_page=100`)).data;
+    if (!locs.length) { site = null; throw new Error(`${org.name} has no locations`); }
+    const loc = locs.length === 1 ? locs[0] : await choose("Choose a building", locs);
+    site = {
+        org_id: +org.id,
+        org_name: org.name,
+        loc_id: +loc.id,
+        loc_name: loc.name,
+        tz: loc.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+    localStorage.setItem("robin.site", JSON.stringify(site));
+}
+
+function choose(title, options) {
+    return new Promise((resolve) => {
+        $("app").style.display = "none";
+        const card = $("site");
+        card.querySelector("h1").textContent = title;
+        const list = $("site-list");
+        list.innerHTML = "";
+        for (const o of options) {
+            const b = document.createElement("button");
+            b.textContent = o.name;
+            b.onclick = () => { card.hidden = true; resolve(o); };
+            list.appendChild(b);
+        }
+        card.hidden = false;
+    });
+}
+
+async function switchSite() {
+    localStorage.removeItem("robin.site");
+    site = null;
+    spaces = [];
+    events.clear();
+    mapData = null;
+    curLevel = null;
+    hidePop();
+    start();
+}
+
 // ---------- data ----------
 async function loadSpaces() {
-    const cached = localStorage.getItem("robin.spaces.v2");
+    const cached = localStorage.getItem(`robin.spaces.v2:${site.loc_id}`);
     if (cached) {
         try { spaces = JSON.parse(cached); } catch {}
     }
@@ -92,7 +146,7 @@ async function loadSpaces() {
     else spaces = await fetchSpaces();
 }
 async function fetchSpaces() {
-    const json = await robin(`/locations/${LOCATION_ID}/spaces?per_page=200&include=calendar`);
+    const json = await robin(`/locations/${site.loc_id}/spaces?per_page=200&include=calendar`);
     const list = json.data
         .filter((s) => (s.behaviors || []).includes("scheduling"))
         .map((s) => ({
@@ -104,7 +158,7 @@ async function fetchSpaces() {
             cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    localStorage.setItem("robin.spaces.v2", JSON.stringify(list));
+    localStorage.setItem(`robin.spaces.v2:${site.loc_id}`, JSON.stringify(list));
     return list;
 }
 async function refreshSpacesInBackground() {
@@ -130,7 +184,7 @@ async function loadAmenities() {
             s.amenities = (json.data || []).map((a) => a.name).filter(Boolean);
         } catch {}
     }));
-    localStorage.setItem("robin.spaces.v2", JSON.stringify(spaces));
+    localStorage.setItem(`robin.spaces.v2:${site.loc_id}`, JSON.stringify(spaces));
     for (const s of spaces) {
         const td = document.querySelector(`tr[data-space="${s.id}"] td.room`);
         if (td && s.amenities?.length) td.title = s.amenities.join(", ");
@@ -375,8 +429,8 @@ async function book(spaceId, startMin) {
                 invitees,
                 visibility: $("p-priv").checked ? "private" : "default",
                 ...(rep ? { recurrence: [`RRULE:${rep};COUNT=${Math.max(2, Math.min(52, +$("p-count").value || 4))}`] } : {}),
-                start: { date_time: isoLocal(start), time_zone: TZ },
-                end: { date_time: isoLocal(end), time_zone: TZ },
+                start: { date_time: isoLocal(start), time_zone: site.tz },
+                end: { date_time: isoLocal(end), time_zone: site.tz },
             }),
         });
         hidePop();
@@ -470,8 +524,8 @@ async function openEditPop(el, spaceId, eventId) {
                     title: $("p-title").value.trim() || "Meeting",
                     invitees,
                     visibility: $("p-priv").checked ? "private" : "default",
-                    start: { date_time: isoLocal(newStart), time_zone: TZ },
-                    end: { date_time: isoLocal(newEnd), time_zone: TZ },
+                    start: { date_time: isoLocal(newStart), time_zone: site.tz },
+                    end: { date_time: isoLocal(newEnd), time_zone: site.tz },
                 }),
             });
             hidePop();
@@ -520,12 +574,12 @@ function toast(msg) {
 const ATLAS = "https://atlas.services.robinpowered.com";
 let view = "grid";
 let mapData = null;   // {levels:[{id,name}], plans:{levelId:svgUrl}, geo:{spaceId:[[x,y],...]}}
-let curLevel = +localStorage.getItem("robin.level") || null;
+let curLevel = null;
 let mapMin = null;    // selected map time, minutes of day
 
 async function atlas(path) {
     const res = await fetch(ATLAS + path, {
-        headers: { "Authorization": "Access-Token " + auth.token, "Tenant-Id": String(ORG_ID) },
+        headers: { "Authorization": "Access-Token " + auth.token, "Tenant-Id": String(site.org_id) },
     });
     if (!res.ok) throw new Error("atlas " + res.status);
     return (await res.json()).data;
@@ -533,12 +587,12 @@ async function atlas(path) {
 
 async function loadMapData() {
     if (mapData) return;
-    try { mapData = JSON.parse(localStorage.getItem("robin.map")); } catch {}
+    try { mapData = JSON.parse(localStorage.getItem(`robin.map:${site.loc_id}`)); } catch {}
     if (mapData) { refreshMapDataInBackground(); return; }
     mapData = await fetchMapData();
 }
 async function fetchMapData() {
-    const levelsJson = await robin(`/locations/${LOCATION_ID}/levels?per_page=100`);
+    const levelsJson = await robin(`/locations/${site.loc_id}/levels?per_page=100`);
     const levels = levelsJson.data
         .map((l) => ({ id: +l.id, name: l.name }))
         .sort((a, b) => (parseInt(a.name.replace(/\D/g, "")) || 0) - (parseInt(b.name.replace(/\D/g, "")) || 0));
@@ -553,7 +607,7 @@ async function fetchMapData() {
         if (f.geometry?.type === "Polygon") geo[f.properties.ownerId] = f.geometry.coordinates[0];
     }
     const data = { levels: levels.filter((l) => plans[l.id]), plans, geo };
-    localStorage.setItem("robin.map", JSON.stringify(data));
+    localStorage.setItem(`robin.map:${site.loc_id}`, JSON.stringify(data));
     return data;
 }
 async function refreshMapDataInBackground() {
@@ -592,7 +646,7 @@ function renderMap() {
         `<button class="floor${l.id === curLevel ? " sel" : ""}" data-level="${l.id}">${esc(l.name.replace("Floor ", ""))}</button>`).join(" ");
     for (const b of $("floors").querySelectorAll("button")) b.onclick = () => {
         curLevel = +b.dataset.level;
-        localStorage.setItem("robin.level", String(curLevel));
+        localStorage.setItem(`robin.level:${site.loc_id}`, String(curLevel));
         renderMap();
     };
     // time options: 30-min steps
@@ -682,6 +736,20 @@ setInterval(() => { if (document.querySelector("tr[data-space]")) renderView(); 
 // ---------- boot ----------
 async function start() {
     $("login").style.display = "none";
+    // pre-generic cache keys
+    for (const k of ["robin.spaces", "robin.spaces.v2", "robin.map", "robin.level"]) localStorage.removeItem(k);
+    if (!site?.loc_id) {
+        try {
+            await pickSite();
+        } catch (e) {
+            logout();
+            $("l-err").textContent = e.message;
+            return;
+        }
+    }
+    document.title = site.loc_name + " Rooms";
+    $("sitename").textContent = site.loc_name;
+    curLevel = +localStorage.getItem(`robin.level:${site.loc_id}`) || null;
     $("app").style.display = "flex";
     $("who").textContent = auth.email;
     await loadSpaces();
@@ -690,5 +758,6 @@ async function start() {
     loadDay();
     loadAmenities();
 }
+$("sitename").onclick = switchSite;
 auth = loadAuth();
 if (auth) start();

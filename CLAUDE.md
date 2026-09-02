@@ -1,8 +1,10 @@
 # CLAUDE.md
 
-Fast room-booking frontend for Robin (robinpowered.com), replacing the slow
-dashboard.robinpowered.com UI. Static single-page app served by a Cloudflare Worker (assets only,
-no server code) — the browser talks to Robin's API directly (CORS is `*`).
+Fast generic room-booking frontend for Robin (robinpowered.com), replacing the slow
+dashboard.robinpowered.com UI. Works with any Robin org/building — the user's organization and
+location are discovered from the API after login. Static single-page app served by a Cloudflare
+Worker (assets only, no server code) at robin.aok.site — the browser talks to Robin's API
+directly (CORS is `*`).
 
 ## Commands
 
@@ -11,7 +13,10 @@ wrangler dev --port 8787   # local dev
 wrangler deploy            # deploy to the personal "aok" Cloudflare account
 ```
 
-No build step, no dependencies. Everything is in `public/index.html`.
+No build step, no dependencies. `public/`: `index.html` (markup shell), `app.js` (all logic),
+`style.css`, `_headers` (CSP + security headers — script/style must stay in external files; the
+CSP has no `unsafe-inline`, so inline `style=` attributes in JS-generated HTML are blocked too;
+use classes or the `hidden` attribute).
 
 ## Robin API notes (hard-won, verify before "fixing")
 
@@ -19,9 +24,12 @@ Base: `https://api.robinpowered.com/v1.0`. Discovered by watching the dashboard'
 probing; Robin's public docs don't cover most of this.
 
 - **Auth**: `POST /auth/users` with HTTP Basic (email/password) and JSON body
-  `{"remember_me":true,"organization":<org id>}` → `data.access_token` (+ `account_id`,
-  `expire_at`). `remember_me:false` gives a ~2h token; `true` gives ~14 days. Scopes are always
-  just `basic_read, basic_write`. Send as `Authorization: Access-Token <token>`.
+  `{"remember_me":true}` (the `organization` field is optional) → `data.access_token`
+  (+ `account_id`, `expire_at`). `remember_me:false` gives a ~2h token; `true` gives ~14 days.
+  Scopes are always just `basic_read, basic_write`. Send as `Authorization: Access-Token <token>`.
+- **Org/location discovery**: `GET /me/organizations` → the user's orgs (filter `disabled_at`);
+  `GET /organizations/{id}/locations?per_page=100` → locations with `time_zone`. Most requests
+  also want a `Tenant-Id: <org id>` header (`/me/organizations` works without it).
 - **Spaces**: `GET /locations/{locId}/spaces?per_page=200&include=calendar` — one request returns
   all spaces with their calendars. Bookable rooms have `behaviors` containing `"scheduling"` and a
   non-null `calendar`. A few scheduling spaces have no calendar and cannot be booked this way.
@@ -80,8 +88,11 @@ probing; Robin's public docs don't cover most of this.
 
 ## App architecture
 
-- Auth token + account_id stored in `localStorage["robin.auth"]`; spaces list cached in
-  `localStorage["robin.spaces"]` and refreshed in the background. On 401 the app logs out.
+- Auth token + account_id stored in `localStorage["robin.auth"]`; the chosen org/building in
+  `localStorage["robin.site"]` (`{org_id, org_name, loc_id, loc_name, tz}` — auto-picked when the
+  account has exactly one, otherwise a picker card is shown; the header title button switches).
+  Spaces/map/floor caches are keyed per location: `robin.spaces.v2:<locId>`, `robin.map:<locId>`,
+  `robin.level:<locId>`; spaces refresh in the background. On 401 the app logs out.
 - Grid: rooms × 15-min slots (8:00–19:00). Click a free slot → book popover; click one of your own
   bookings (green) → cancel. "Mine" = `creator_id` matches the logged-in `account_id`.
 - The wrangler `compatibility_date` is pinned to 2026-05-01 because the installed wrangler
