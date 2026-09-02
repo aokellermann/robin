@@ -737,7 +737,7 @@ function toast(msg) {
 const ATLAS = "https://atlas.services.robinpowered.com";
 let view = "grid";
 let mapData = null;   // {levels:[{id,name}], plans:{levelId:svgUrl}, geo:{spaceId:[[x,y],...]}}
-let curLevel = null;
+let curLevel = +localStorage.getItem("robin.level") || null;
 let mapMin = null;    // selected map time, minutes of day
 
 async function atlas(path) {
@@ -807,7 +807,11 @@ function renderMap() {
     if (mapMin === null) mapMin = defaultMapMin();
     $("floors").innerHTML = mapData.levels.map((l) =>
         `<button class="floor${l.id === curLevel ? " sel" : ""}" data-level="${l.id}">${esc(l.name.replace("Floor ", ""))}</button>`).join(" ");
-    for (const b of $("floors").querySelectorAll("button")) b.onclick = () => { curLevel = +b.dataset.level; renderMap(); };
+    for (const b of $("floors").querySelectorAll("button")) b.onclick = () => {
+        curLevel = +b.dataset.level;
+        localStorage.setItem("robin.level", String(curLevel));
+        renderMap();
+    };
     // time options: 30-min steps
     const opts = [];
     for (let m = DAY_START * 60; m < DAY_END * 60; m += 30) opts.push(`<option value="${m}"${m === mapMin ? " selected" : ""}>${fmtTime(m)}</option>`);
