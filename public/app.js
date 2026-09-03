@@ -869,11 +869,13 @@ function openBookPop(td, spaceId, slot) {
         <label class="chk"><input type="checkbox" id="p-priv">Private</label>
         <div class="row">
             <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === defDur ? " selected" : ""}>${d} min</option>`).join("")}</select>
+            <button id="p-cancel">Cancel</button>
             <button class="primary" id="p-book">Book</button>
         </div>
         <p class="err" id="p-err"></p>`;
     positionPop(td);
     wireRecControls();
+    $("p-cancel").onclick = hidePop;
     const chips = initChips([]);
     $("p-title").select();
     $("p-book").onclick = () => book(spaceId, startMin, chips);
@@ -930,8 +932,10 @@ function openEventPop(td, spaceId, eventId) {
         <button id="p-edit">Edit${isInstance ? " this occurrence" : ""}</button>
         <button class="danger" id="p-del">${isInstance ? "Cancel this occurrence" : "Cancel booking"}</button>
         ${isInstance ? '<button class="danger" id="p-delseries">Cancel whole series</button>' : ""}
+        <button id="p-close">Close</button>
         <p class="err" id="p-err"></p>`;
     positionPop(td);
+    $("p-close").onclick = hidePop;
     $("p-edit").onclick = () => openEditPop(td, spaceId, eventId);
     const del = async (id, msg) => {
         try {
@@ -989,10 +993,14 @@ async function openEditPop(el, spaceId, eventId) {
         ${isInstance ? '<div class="sub">Series repeats:</div>' : ""}
         ${recControlsHtml(masterRule, isInstance ? "Stop repeating" : "Does not repeat")}
         <label class="chk"><input type="checkbox" id="p-priv"${d.visibility === "private" ? " checked" : ""}>Private</label>
-        <button class="primary" id="p-save">Save</button>
+        <div class="row">
+            <button id="p-cancel">Cancel</button>
+            <button class="primary" id="p-save">Save</button>
+        </div>
         <p class="err" id="p-err"></p>`;
     positionPop(el);
     wireRecControls();
+    $("p-cancel").onclick = hidePop;
     const chips = initChips(attendees);
     const save = async () => {
         const emails = chips.get();
