@@ -142,6 +142,21 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 }
 #grid td.busy.mine { background: var(--mine-bg); color: var(--mine); cursor: grab; font-weight: 600; }
 #grid td.droptgt { background: var(--free-hover); box-shadow: inset 0 0 0 2px var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+#grid td.pending { opacity: 0.55; }
+#grid td.pending::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    margin: -7px 0 0 -7px;
+    border: 2px solid var(--muted);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
 #grid td.busy.mine .rsz {
     position: absolute;
     top: 0;
@@ -178,9 +193,8 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 #pop .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 #pop .desc { max-height: 5.5em; overflow-y: auto; }
 #pop .row { display: flex; gap: 6px; }
-#pop .row[hidden] { display: none; }
+#pop [hidden] { display: none !important; }
 #p-recopts { display: flex; flex-direction: column; gap: 8px; }
-#p-recopts[hidden] { display: none; }
 #pop .recrow { align-items: center; }
 #pop .recrow .sub { flex: 0 0 auto; }
 #pop .recrow input { flex: 1; min-width: 0; }

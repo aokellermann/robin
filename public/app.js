@@ -432,6 +432,7 @@ document.addEventListener("pointerup", async () => {
     if (newEnd === ev.endMin) return;
     const start = new Date(day); start.setHours(0, ev.startMin, 0, 0);
     const end = new Date(day); end.setHours(0, newEnd, 0, 0);
+    td.classList.add("pending");
     try {
         await robin(`/events/${encodeURIComponent(ev.id)}`, {
             method: "PATCH",
@@ -444,6 +445,8 @@ document.addEventListener("pointerup", async () => {
         reloadSpace(spaceId);
     } catch (err) {
         toast("Resize failed: " + err.message);
+    } finally {
+        td.classList.remove("pending");
     }
 });
 
@@ -452,7 +455,7 @@ let dragEv = null;
 $("grid").addEventListener("dragstart", (e) => {
     const td = e.target.closest("td.busy.mine");
     if (!td) { e.preventDefault(); return; }
-    dragEv = { spaceId: +td.closest("tr[data-space]").dataset.space, eventId: td.dataset.event };
+    dragEv = { spaceId: +td.closest("tr[data-space]").dataset.space, eventId: td.dataset.event, td };
     e.dataTransfer.effectAllowed = "move";
 });
 $("grid").addEventListener("dragover", (e) => {
@@ -477,7 +480,7 @@ $("grid").addEventListener("drop", async (e) => {
     if (!td || td.classList.contains("busy") || !dragEv) return;
     e.preventDefault();
     td.classList.remove("droptgt");
-    const { spaceId, eventId } = dragEv;
+    const { spaceId, eventId, td: srcTd } = dragEv;
     dragEv = null;
     const ev = (events.get(spaceId) || []).find((x) => x.id === eventId);
     if (!ev) return;
@@ -489,6 +492,8 @@ $("grid").addEventListener("drop", async (e) => {
     if (clash) { toast("That time overlaps another booking"); return; }
     const start = new Date(day); start.setHours(0, newStart, 0, 0);
     const end = new Date(start.getTime() + dur * 60000);
+    srcTd.classList.add("pending");
+    td.classList.add("pending");
     try {
         if (tgtSpace === spaceId) {
             await robin(`/events/${encodeURIComponent(eventId)}`, {
@@ -529,6 +534,9 @@ $("grid").addEventListener("drop", async (e) => {
         reloadSpace(spaceId);
     } catch (err) {
         toast("Move failed: " + err.message);
+    } finally {
+        srcTd.classList.remove("pending");
+        td.classList.remove("pending");
     }
 });
 
@@ -550,6 +558,16 @@ function positionPop(el) {
 }
 
 function hidePop() { $("pop").style.display = "none"; }
+
+// the popover grows when sections expand (e.g. recurrence options) — keep it on screen
+function clampPop() {
+    const pop = $("pop");
+    if (pop.style.display !== "flex") return;
+    const r = pop.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8) pop.style.top = Math.max(8, window.innerHeight - r.height - 8) + "px";
+    if (r.right > window.innerWidth - 4) pop.style.left = Math.max(4, window.innerWidth - r.width - 8) + "px";
+}
+new ResizeObserver(clampPop).observe($("pop"));
 
 function fmtTime(min) {
     const h = Math.floor(min / 60), m = min % 60;
@@ -742,11 +760,13 @@ function wireRecControls() {
         if (f === "WEEKLY" && !$("p-bydays").querySelector(".on")) {
             $("p-bydays").querySelector(`[data-d="${BYDAYS[day.getDay()]}"]`).classList.add("on");
         }
+        clampPop();
     };
     $("p-endkind").onchange = () => {
         const k = $("p-endkind").value;
         $("p-count").hidden = k !== "count";
         $("p-until").hidden = k !== "until";
+        clampPop();
     };
     for (const b of $("p-bydays").querySelectorAll("button")) {
         b.onclick = () => b.classList.toggle("on");
