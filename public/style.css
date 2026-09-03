@@ -97,6 +97,27 @@ header .spacer { flex: 1; }
 header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
 header .who { color: var(--muted); font-size: 12px; }
 #status { color: var(--muted); font-size: 12px; min-width: 70px; }
+#freenow.active { border-color: var(--accent); color: var(--accent); }
+
+/* my-day strip */
+#myday {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    font-size: 12px;
+}
+#myday[hidden] { display: none; }
+#myday button {
+    white-space: nowrap;
+    padding: 3px 8px;
+    background: var(--mine-bg);
+    color: var(--mine);
+    border-color: transparent;
+    font-size: 12px;
+}
 
 /* grid */
 #gridwrap { flex: 1; overflow: auto; position: relative; }
@@ -161,6 +182,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     position: absolute;
     top: 0;
     right: 0;
+    touch-action: none;
     width: 9px;
     height: 100%;
     cursor: ew-resize;
@@ -189,7 +211,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     border-radius: 10px;
     box-shadow: 0 8px 30px rgba(0,0,0,.25);
     padding: 14px;
-    width: 300px;
+    width: min(300px, calc(100vw - 16px));
     max-height: calc(100vh - 16px);
     overflow-y: auto;
     display: none;
@@ -297,6 +319,29 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 #mapbox polygon.dim { fill: color-mix(in srgb, var(--muted) 20%, transparent); stroke: var(--muted); cursor: default; }
 /* floorplan backing rect is always white, so labels are always dark */
 #mapbox text { fill: #2c2a27; pointer-events: none; text-anchor: middle; }
+
+/* mobile */
+@media (pointer: coarse) {
+    #grid td.busy.mine .rsz { width: 18px; }
+}
+@media (max-width: 700px) {
+    header { gap: 5px; padding: 6px 8px; font-size: 13px; }
+    header button, header input, header select, #amenfilter summary { padding: 4px 8px; }
+    header .datelabel { min-width: 0; }
+    header .who { display: none; }
+    #status { display: none; }
+    #refresh { display: none; } /* auto-refresh covers it; taps go to pull-to-refresh */
+    #datepick { max-width: 130px; }
+    #grid td.room, #grid th.room {
+        min-width: 0;
+        max-width: 38vw;
+        padding: 6px 6px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #grid td.room .amen { display: none; }
+    #login, #site { margin: 10vh auto; max-width: calc(100vw - 24px); }
+}
 
 #toast {
     position: fixed;

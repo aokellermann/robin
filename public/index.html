@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rooms</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.9em'%20font-size='90'%3E%F0%9F%90%A6%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
 </head>
@@ -41,6 +42,7 @@
             <summary>Amenities</summary>
             <div class="menu" id="amenmenu"></div>
         </details>
+        <button id="freenow" title="Only rooms free for the next 30 minutes">Free now</button>
         <button id="viewtoggle">Map</button>
         <span class="spacer"></span>
         <span id="status"></span>
@@ -48,6 +50,7 @@
         <span class="who" id="who"></span>
         <button id="logout">Log out</button>
     </header>
+    <div id="myday" hidden></div>
     <div id="gridwrap">
         <table id="grid"></table>
     </div>

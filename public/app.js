@@ -197,7 +197,9 @@ function dayRange() {
     return { after: isoLocal(after), before: isoLocal(before) };
 }
 
+let lastLoad = 0;
 async function loadDay(onlyMissing = false) {
+    lastLoad = Date.now();
     const seq = ++fetchSeq;
     const { after, before } = dayRange();
     let visible = visibleSpaces();
@@ -265,9 +267,22 @@ function slotLabel(i) {
     return h12 + (h < 12 ? "a" : "p");
 }
 
+let freeNowOnly = false;
+function isFreeNow(id) {
+    const now = new Date();
+    if (now.toDateString() !== day.toDateString()) return true;
+    const m = now.getHours() * 60 + now.getMinutes();
+    return !(events.get(id) || []).some((e) => e.startMin < m + 30 && e.endMin > m);
+}
+// what actually renders: the fetch list (visibleSpaces) minus free-now filtering
+function displaySpaces() {
+    const v = visibleSpaces();
+    return freeNowOnly ? v.filter((x) => x.cal && isFreeNow(x.id)) : v;
+}
+
 function renderGrid() {
     const grid = $("grid");
-    const visible = visibleSpaces();
+    const visible = displaySpaces();
     let html = "<colgroup><col>";
     const nowIdx = nowSlotIndex();
     for (let i = 0; i < SLOTS; i++) html += `<col${i === nowIdx ? ' class="nowcol"' : ""}>`;
@@ -837,6 +852,9 @@ function openBookPop(td, spaceId, slot) {
     const maxDur = maxEnd - startMin;
     const durations = [15, 30, 45, 60, 90, 120].filter((d) => d <= maxDur);
     if (!durations.length) return;
+    let prefs = {};
+    try { prefs = JSON.parse(localStorage.getItem("robin.prefs")) || {}; } catch {}
+    const defDur = durations.includes(prefs.dur) ? prefs.dur : durations.includes(30) ? 30 : durations[0];
     const pop = $("pop");
     pop.innerHTML = `
         ${s.img ? `<img class="thumb" src="${esc(s.img)}" alt="">` : ""}
@@ -844,13 +862,13 @@ function openBookPop(td, spaceId, slot) {
         <div class="sub">${day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${fmtTime(startMin)}</div>
         ${s.note ? `<div class="sub roomnote">${esc(s.note)}</div>` : ""}
         ${s.amenities?.length ? `<div class="sub">${esc(s.amenities.join(" · "))}</div>` : ""}
-        <input id="p-title" placeholder="Title" value="Meeting">
+        <input id="p-title" placeholder="Title" value="${esc(prefs.title || "Meeting")}">
         <textarea id="p-desc" rows="2" placeholder="Description (optional)"></textarea>
         ${chipsHtml}
         ${recControlsHtml(null, "Does not repeat")}
         <label class="chk"><input type="checkbox" id="p-priv">Private</label>
         <div class="row">
-            <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === 30 ? " selected" : ""}>${d} min</option>`).join("")}</select>
+            <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === defDur ? " selected" : ""}>${d} min</option>`).join("")}</select>
             <button class="primary" id="p-book">Book</button>
         </div>
         <p class="err" id="p-err"></p>`;
@@ -891,6 +909,7 @@ async function book(spaceId, startMin, chips) {
             }),
         });
         hidePop();
+        localStorage.setItem("robin.prefs", JSON.stringify({ dur, title }));
         toast(`Booked ${s.name} at ${fmtTime(startMin)}${rule ? " (recurring)" : ""}`);
         reloadSpace(spaceId);
     } catch (e) {
@@ -1145,7 +1164,7 @@ function renderMap() {
     const px = (x) => ((x + 180) / 360 * W).toFixed(1);
     const py = (y) => ((90 - y) / 180 * H).toFixed(1);
     const fontSize = Math.round(W / 90);
-    const visible = new Set(visibleSpaces().map((s) => s.id));
+    const visible = new Set(displaySpaces().map((s) => s.id));
     // one self-contained SVG (white rect + floorplan image + room shapes): SVG
     // shapes use fill, which dark-mode extensions' background overrides can't touch
     let svg = `<svg viewBox="0 0 ${W} ${H}" font-size="${fontSize}">`;
@@ -1183,6 +1202,29 @@ function renderMap() {
 function updateSpaceView(spaceId) {
     if (view === "grid") renderRow(spaceId);
     else renderMap();
+    renderMyDay();
+}
+
+// ---------- my-day strip ----------
+function renderMyDay() {
+    const mine = [];
+    for (const sp of spaces) {
+        for (const e of events.get(sp.id) || []) if (e.mine) mine.push({ sp, e });
+    }
+    mine.sort((a, b) => a.e.startMin - b.e.startMin);
+    const bar = $("myday");
+    bar.hidden = !mine.length;
+    bar.innerHTML = mine.map(({ sp, e }, i) =>
+        `<button data-i="${i}">${fmtTime(e.startMin)} ${esc(sp.name)}${e.title && e.title !== "Reserved" ? " \u00b7 " + esc(e.title) : ""}</button>`).join("");
+    for (const b of bar.querySelectorAll("button")) b.onclick = () => {
+        const { sp, e } = mine[+b.dataset.i];
+        if (view !== "grid") { view = "grid"; renderView(); }
+        const cell = document.querySelector(`tr[data-space="${sp.id}"] td[data-event="${e.id}"]`);
+        if (cell) {
+            cell.scrollIntoView({ block: "center", inline: "center" });
+            openEventPop(cell, sp.id, e.id);
+        }
+    };
 }
 
 function renderView() {
@@ -1191,14 +1233,36 @@ function renderView() {
     $("viewtoggle").textContent = view === "grid" ? "Map" : "Grid";
     $("datelabel").textContent = day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     $("datepick").value = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-    if (view === "grid") renderGrid();
-    else { loadMapData().then(renderMap).catch((e) => toast("Map failed to load: " + e.message)); }
+    if (view === "grid") {
+        renderGrid();
+        if (scrollNowPending) { scrollToNow(); scrollNowPending = false; }
+    } else {
+        loadMapData().then(renderMap).catch((e) => toast("Map failed to load: " + e.message));
+    }
+    renderMyDay();
+}
+
+let scrollNowPending = true;
+function scrollToNow() {
+    const idx = nowSlotIndex();
+    if (idx < 0) return;
+    const th = document.querySelectorAll("#grid thead th:not(.room)")[idx];
+    const room = document.querySelector("#grid th.room");
+    if (th) $("gridwrap").scrollLeft = Math.max(0, th.offsetLeft - room.offsetWidth - 80);
 }
 
 $("viewtoggle").onclick = () => { view = view === "grid" ? "map" : "grid"; hidePop(); renderView(); };
 
 // ---------- nav ----------
-function setDay(d) { day = d; hidePop(); events.clear(); mapMin = null; renderView(); loadDay(); }
+function setDay(d) {
+    day = d;
+    hidePop();
+    events.clear();
+    mapMin = null;
+    scrollNowPending = d.toDateString() === new Date().toDateString();
+    renderView();
+    loadDay();
+}
 $("prev").onclick = () => setDay(new Date(day.getTime() - 864e5));
 $("next").onclick = () => setDay(new Date(day.getTime() + 864e5));
 $("today").onclick = () => setDay(startOfToday());
@@ -1209,7 +1273,34 @@ $("datepick").onchange = () => {
 $("refresh").onclick = () => loadDay();
 $("mincap").onchange = () => { renderView(); loadDay(true); };
 $("logout").onclick = logout;
-setInterval(() => { if (document.querySelector("tr[data-space]")) renderView(); }, 60000);
+$("freenow").onclick = () => {
+    freeNowOnly = !freeNowOnly;
+    $("freenow").classList.toggle("active", freeNowOnly);
+    renderView();
+};
+
+// keyboard shortcuts (outside inputs and popovers)
+document.addEventListener("keydown", (e) => {
+    if (!auth || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target instanceof Element && e.target.closest("input, textarea, select")) return;
+    if ($("pop").style.display === "flex") return;
+    if (e.key === "ArrowLeft") $("prev").click();
+    else if (e.key === "ArrowRight") $("next").click();
+    else if (e.key === "t") $("today").click();
+    else if (e.key === "m") $("viewtoggle").click();
+    else if (e.key === "r") loadDay();
+});
+
+// re-render each minute (past-slot shading, now column) and quietly refetch
+// bookings ~every 90s while visible — Robin has no push/webhook channel
+setInterval(() => {
+    if (!document.querySelector("tr[data-space]")) return;
+    renderView();
+    if (document.visibilityState === "visible" && Date.now() - lastLoad > 90000) loadDay();
+}, 60000);
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && auth && Date.now() - lastLoad > 90000) loadDay();
+});
 
 // ---------- boot ----------
 async function start() {
