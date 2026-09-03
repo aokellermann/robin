@@ -398,12 +398,16 @@ $("grid").addEventListener("pointerdown", (e) => {
     if (!ev) return;
     e.preventDefault();
     td.removeAttribute("draggable");
-    const th = document.querySelector("#grid thead th:not(.room)");
     let maxEnd = DAY_END * 60;
     for (const x of events.get(spaceId) || []) {
         if (x.id !== ev.id && x.startMin >= ev.endMin) maxEnd = Math.min(maxEnd, x.startMin);
     }
-    rsz = { td, tr, spaceId, ev, maxEnd, pxPerMin: th.getBoundingClientRect().width / STEP_MIN, startX: e.clientX, newEnd: ev.endMin, moved: false };
+    // scale from the cell's own geometry — header cell widths drift from slot
+    // widths under border-collapse, which misplaced the shrink line
+    const visStart = Math.max(ev.startMin, DAY_START * 60);
+    const visEnd = Math.min(ev.endMin, DAY_END * 60);
+    const pxPerMin = td.getBoundingClientRect().width / (visEnd - visStart);
+    rsz = { td, tr, spaceId, ev, maxEnd, pxPerMin, startX: e.clientX, newEnd: ev.endMin, moved: false };
     document.body.style.cursor = "ew-resize";
 });
 document.addEventListener("pointermove", (e) => {
