@@ -402,24 +402,31 @@ $("grid").addEventListener("pointerdown", (e) => {
     for (const x of events.get(spaceId) || []) {
         if (x.id !== ev.id && x.startMin >= ev.endMin) maxEnd = Math.min(maxEnd, x.startMin);
     }
-    // scale from the cell's own geometry — header cell widths drift from slot
-    // widths under border-collapse, which misplaced the shrink line
-    const visStart = Math.max(ev.startMin, DAY_START * 60);
-    const visEnd = Math.min(ev.endMin, DAY_END * 60);
-    const pxPerMin = td.getBoundingClientRect().width / (visEnd - visStart);
-    rsz = { td, tr, spaceId, ev, maxEnd, pxPerMin, startX: e.clientX, newEnd: ev.endMin, moved: false };
+    // snap to the actual rendered column boundaries (header cell edges) instead
+    // of arithmetic scaling — border-collapse makes computed widths drift
+    const ths = [...document.querySelectorAll("#grid thead th:not(.room)")];
+    const bounds = ths.map((t) => t.getBoundingClientRect().left);
+    bounds.push(ths[ths.length - 1].getBoundingClientRect().right);
+    rsz = { td, tr, spaceId, ev, maxEnd, bounds, tdRect: td.getBoundingClientRect(), newEnd: ev.endMin, moved: false };
     document.body.style.cursor = "ew-resize";
 });
 document.addEventListener("pointermove", (e) => {
     if (!rsz) return;
-    const dm = Math.round((e.clientX - rsz.startX) / rsz.pxPerMin / STEP_MIN) * STEP_MIN;
-    rsz.newEnd = Math.max(rsz.ev.startMin + STEP_MIN, Math.min(rsz.ev.endMin + dm, rsz.maxEnd));
+    // nearest column boundary to the cursor becomes the new end time
+    let best = 0, bd = Infinity;
+    rsz.bounds.forEach((x, i) => {
+        const d = Math.abs(e.clientX - x);
+        if (d < bd) { bd = d; best = i; }
+    });
+    const ne = DAY_START * 60 + best * STEP_MIN;
+    rsz.newEnd = Math.max(rsz.ev.startMin + STEP_MIN, Math.min(ne, rsz.maxEnd));
     if (rsz.newEnd !== rsz.ev.endMin) rsz.moved = true;
     for (const c of rsz.tr.querySelectorAll("td[data-slot]")) {
         const m0 = DAY_START * 60 + +c.dataset.slot * STEP_MIN;
         c.classList.toggle("droptgt", m0 >= rsz.ev.endMin && m0 < rsz.newEnd);
     }
-    // when shrinking, paint the trailing part of the cell as free space live
+    // when shrinking, paint the trailing part of the cell as free space live,
+    // its left edge pinned to the real column boundary
     let cover = rsz.td.querySelector(".shrinkcover");
     const visEnd = Math.min(rsz.ev.endMin, DAY_END * 60);
     if (rsz.newEnd < visEnd) {
@@ -428,7 +435,8 @@ document.addEventListener("pointermove", (e) => {
             cover.className = "shrinkcover";
             rsz.td.appendChild(cover);
         }
-        cover.style.width = (visEnd - rsz.newEnd) * rsz.pxPerMin + "px";
+        const bx = rsz.bounds[(rsz.newEnd - DAY_START * 60) / STEP_MIN];
+        cover.style.left = bx - rsz.tdRect.left - rsz.td.clientLeft + "px";
     } else if (cover) {
         cover.remove();
     }
