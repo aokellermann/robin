@@ -415,6 +415,19 @@ document.addEventListener("pointermove", (e) => {
         const m0 = DAY_START * 60 + +c.dataset.slot * STEP_MIN;
         c.classList.toggle("droptgt", m0 >= rsz.ev.endMin && m0 < rsz.newEnd);
     }
+    // when shrinking, paint the trailing part of the cell as free space live
+    let cover = rsz.td.querySelector(".shrinkcover");
+    const visEnd = Math.min(rsz.ev.endMin, DAY_END * 60);
+    if (rsz.newEnd < visEnd) {
+        if (!cover) {
+            cover = document.createElement("div");
+            cover.className = "shrinkcover";
+            rsz.td.appendChild(cover);
+        }
+        cover.style.width = (visEnd - rsz.newEnd) * rsz.pxPerMin + "px";
+    } else if (cover) {
+        cover.remove();
+    }
     const t = $("toast");
     clearTimeout(toastTimer);
     t.textContent = `${fmtTime(rsz.ev.startMin)} \u2013 ${fmtTime(rsz.newEnd)}`;
@@ -426,6 +439,7 @@ document.addEventListener("pointerup", async () => {
     rsz = null;
     document.body.style.cursor = "";
     for (const t of document.querySelectorAll(".droptgt")) t.classList.remove("droptgt");
+    if (newEnd === ev.endMin || newEnd >= Math.min(ev.endMin, DAY_END * 60)) td.querySelector(".shrinkcover")?.remove();
     $("toast").style.display = "none";
     td.setAttribute("draggable", "true");
     if (moved) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
@@ -445,6 +459,7 @@ document.addEventListener("pointerup", async () => {
         reloadSpace(spaceId);
     } catch (err) {
         toast("Resize failed: " + err.message);
+        td.querySelector(".shrinkcover")?.remove();
     } finally {
         td.classList.remove("pending");
     }

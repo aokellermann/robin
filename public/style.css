@@ -168,6 +168,14 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     opacity: 0.6;
 }
 #grid td.busy.mine .rsz:hover { opacity: 1; }
+#grid td.busy.mine .shrinkcover {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg);
+    border-left: 3px solid var(--accent);
+}
 #grid td.past { opacity: 0.45; }
 #grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
 #grid th.hourstart, #grid td.hourstart { border-left: 2px solid var(--muted); }
