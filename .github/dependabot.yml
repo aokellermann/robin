@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # No package manifest (plain Worker + static assets, no dependencies), so
+  # there is no JS ecosystem to watch. Add a "bun"/"npm" entry if that changes.
+
+  # No-op until workflows exist under .github/workflows/. Biweekly: Dependabot
+  # has no two-week interval, so run on the 1st and 15th via cron.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "cron"
+      cronjob: "0 8 1,15 * *"

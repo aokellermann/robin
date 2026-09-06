@@ -17,7 +17,7 @@ wrangler dev --port 8787   # local dev
 wrangler deploy            # deploy to the personal "aok" Cloudflare account
 ```
 
-No build step, no dependencies. `public/`: `index.html` (markup shell), `app.js` (all logic),
+No build step, no dependencies (so Dependabot in `.github/dependabot.yml` only watches github-actions, a no-op until workflows exist). `public/`: `index.html` (markup shell), `app.js` (all logic),
 `style.css`, `_headers` (CSP + security headers — script/style must stay in external files; the
 CSP has no `unsafe-inline`, so inline `style=` attributes in JS-generated HTML are blocked too;
 use classes or the `hidden` attribute).
