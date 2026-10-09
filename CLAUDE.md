@@ -36,12 +36,14 @@ probing; Robin's public docs don't cover most of this.
   also want a `Tenant-Id: <org id>` header (`/me/organizations` works without it).
 - **Spaces**: `GET /locations/{locId}/spaces?per_page=200&include=calendar` — one request returns
   all spaces with their calendars. Bookable rooms have `behaviors` containing `"scheduling"` and a
-  non-null `calendar`. A few scheduling spaces have no calendar and cannot be booked this way.
+  non-null `calendar`. A few scheduling spaces have no calendar and
+  cannot be booked via `POST /events`; since 2026-10-08 the app drops every calendar-less space
+  so they never appear in the grid or map.
   Spaces also carry `description` (room notes, e.g. broken-equipment warnings) and `image` (photo
   on static.robinpowered.com — that host must stay in the CSP img-src). Gotcha: `type: "other"`
   spaces with no calendar are tenant office areas drawn on the floorplan,
-  not rooms — Robin's own UI hides them; the app filters them out. But some bookable non-meeting rooms (wellness rooms etc.) are also
-  `type: "other"` WITH calendars, so only filter the calendar-less ones.
+  not rooms — Robin's own UI hides them. Some bookable non-meeting rooms (wellness rooms etc.) are also `type: "other"` but WITH
+  calendars, so the filter must key on the calendar, never on `type`.
 - **Events for a day**: `GET /spaces/{id}/events?after=...&before=...&per_page=100`, one request
   per space, fanned out in parallel from the browser.
 - **Timestamp format gotcha**: Robin 400s on `Date.toISOString()` output — it rejects the `.000`

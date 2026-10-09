@@ -356,6 +356,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     header button, header input, header select, .dd summary { padding: 4px 8px; }
     header .datelabel { min-width: 0; }
     #status { display: none; }
+    #mapbox { align-items: flex-start; } /* portrait: keep the floorplan under the floor buttons, not mid-screen */
     #grid td.room, #grid th.room {
         min-width: 0;
         max-width: 38vw;
@@ -379,3 +380,12 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     display: none;
     z-index: 20;
 }
+
+/* MCP consent page (/authorize, rendered by the Worker) */
+#login.consent { max-width: 420px; }
+#login.consent p { margin: 0; }
+#login.consent .muted { color: var(--muted); font-size: 12px; }
+#login.consent .warn { color: var(--danger); font-weight: 600; }
+#login.consent form { display: contents; }
+#login.consent #site { display: contents; }
+#login.consent #site[hidden] { display: none; }

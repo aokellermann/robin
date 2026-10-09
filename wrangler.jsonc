@@ -1,6 +1,7 @@
 {
     "name": "robin",
     "compatibility_date": "2026-05-01",
+    "compatibility_flags": ["global_fetch_strictly_public"],
     "main": "worker.js",
     "routes": [
         {
@@ -10,5 +11,11 @@
     ],
     "assets": {
         "directory": "./public"
-    }
+    },
+    "kv_namespaces": [
+        {
+            "binding": "OAUTH_KV",
+            "id": "526c7be479d541b6be6eea90220c6819"
+        }
+    ]
 }

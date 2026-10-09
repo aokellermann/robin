@@ -1,10 +1,15 @@
 version: 2
 updates:
-  # No package manifest (plain Worker + static assets, no dependencies), so
-  # there is no JS ecosystem to watch. Add a "bun"/"npm" entry if that changes.
+  # The Worker's one dependency (@cloudflare/workers-oauth-provider). Biweekly:
+  # Dependabot has no two-week interval, so run on the 1st and 15th via cron.
+  # bun.lock must stay lockfileVersion 1 or Dependabot's bun updater fails silently.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "cron"
+      cronjob: "0 8 1,15 * *"
 
-  # No-op until workflows exist under .github/workflows/. Biweekly: Dependabot
-  # has no two-week interval, so run on the 1st and 15th via cron.
+  # No-op until workflows exist under .github/workflows/.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

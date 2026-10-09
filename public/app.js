@@ -148,7 +148,7 @@ async function loadSpaces() {
 async function fetchSpaces() {
     const json = await robin(`/locations/${site.loc_id}/spaces?per_page=200&include=calendar`);
     const list = json.data
-        .filter((s) => (s.behaviors || []).includes("scheduling") && (s.type !== "other" || s.calendar))
+        .filter((s) => (s.behaviors || []).includes("scheduling") && s.calendar) // calendar-less spaces cannot be booked via /events
         .map((s) => ({
             id: +s.id,
             name: s.name,
@@ -634,8 +634,11 @@ $("grid").addEventListener("drop", async (e) => {
 document.addEventListener("click", (e) => {
     // a click that re-rendered its own button (calendar month nav) leaves e.target detached
     if (e.target.isConnected && !e.target.closest("#pop") && !e.target.closest("td")) hidePop();
-    for (const dd of document.querySelectorAll("details.dd")) if (!e.target.closest("#" + dd.id)) dd.removeAttribute("open");
+    closeDropdowns(e.target);
 });
+function closeDropdowns(except) {
+    for (const dd of document.querySelectorAll("details.dd")) if (!except || !except.closest("#" + dd.id)) dd.removeAttribute("open");
+}
 
 function positionPop(el) {
     const pop = $("pop");
@@ -1333,6 +1336,7 @@ $("today").onclick = () => setDay(startOfToday());
 // month calendar popover, weeks starting Monday
 $("datelabel").onclick = (e) => {
     e.stopPropagation(); // the document click handler would close it immediately
+    closeDropdowns();
     if ($("pop").style.display === "flex" && $("pop").querySelector(".cal")) { hidePop(); return; }
     openDatePop(new Date(day.getFullYear(), day.getMonth(), 1));
 };
