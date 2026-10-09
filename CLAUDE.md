@@ -10,6 +10,15 @@ browser. It forwards the caller's own `Authorization`/`Tenant-Id` headers upstre
 query `getPagedUsers`, hash in worker.js, captured from the dashboard's own requests) — no
 credentials live in the Worker.
 
+## Public repo: no account specifics
+
+This repo is going to be public. Never put anything about the author's own Robin account,
+org, buildings, floors, rooms or desks in tracked files (README, CLAUDE.md, code comments,
+tool descriptions, tests): no real desk codes, room names, building names, floor numbers,
+org ids, account ids or email addresses. Use obviously generic examples (desk `3A1`, "Room
+A") and describe room types by Robin's `type` values, not by what the author's building has.
+Deployment config (`robin.aok.site`, the KV namespace id in `wrangler.jsonc`) is fine.
+
 ## Commands
 
 ```bash
@@ -168,3 +177,16 @@ own Robin account.
   the code at `/oauth/token`, then call `/mcp` with `Authorization: Bearer`. A real Robin token
   for the approve step can be minted from the `dashboard.robinpowered.com` rbw entry with
   `remember_me: false` (2 h). Verified end to end on 2026-10-08.
+- **Office / nearest room** (2026-10-08): `set_office "3A1"` resolves a desk code against Robin
+  **seats** — private offices are not spaces; they are seat groups (`3A1_1..3`) inside the
+  per-floor desk spaces (`behaviors: ["seats"]`, `GET /spaces/{id}/seats?per_page=200`), which
+  the app never shows. Geometry comes from atlas `GET /layers/seats?ids=…` (same world space as
+  `/layers/spaces`; polygon centroids, chunked 100 ids per request). The office record
+  `{building_id, level_id, floor, seat, x, y}` lives in `OAUTH_KV` under `prefs:robin-<account_id>`
+  (plain JSON, keyed by Robin account so it survives reconnects; `env.OAUTH_KV` is passed into
+  `handleMcp`). `find_free_rooms`/`list_rooms` then sort by centroid distance with a penalty of
+  one floorplan-width per floor apart (`distance_rank`, `same_floor`), and `book_room` without a
+  `room` books the nearest free non-`break_room` with capacity ≥ 2 (or `min_capacity`). Robin
+  exposes no seat assignment for a user (`/me/seats`, `/users/{id}/assigned-seats`,
+  `/reservations/seats?user_ids=` are 404/empty), so the office is always user-supplied. The
+  floorplan SVG has no text, so labels can't be read from it.

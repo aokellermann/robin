@@ -176,7 +176,7 @@ const defaultHandler = {
 
 const apiHandler = {
     fetch(req, env, ctx) {
-        return handleMcp(req, ctx.props, { robin: ROBIN });
+        return handleMcp(req, ctx.props, { robin: ROBIN, kv: env.OAUTH_KV });
     },
 };
 

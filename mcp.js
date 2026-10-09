@@ -4,8 +4,22 @@
 // Robin API knowledge mirrors public/app.js and CLAUDE.md — change both together.
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+const ATLAS = "https://atlas.services.robinpowered.com";
 const SPACES_TTL = 10 * 60 * 1000;
-const spacesCache = new Map(); // `${org}:${loc}` -> {at, spaces, levels}
+const spacesCache = new Map(); // `${org}:${loc}` -> {at, spaces, levels, deskSpaces}
+const geoCache = new Map();    // `${org}:${loc}` -> {at, rooms: Map(spaceId -> {x,y}), seats: [{name, space_id, x, y}]}
+
+// ---------- per-user preferences (plain KV, keyed by Robin account; survive reconnects) ----------
+// {office: {building_id, building, floor, seat, x, y}}
+const prefsKey = (props) => `prefs:robin-${props.account_id}`;
+async function loadPrefs(kv, props) {
+    if (!kv) return {};
+    try { return (await kv.get(prefsKey(props), "json")) || {}; } catch { return {}; }
+}
+async function savePrefs(kv, props, prefs) {
+    if (!kv) throw new Error("Preferences storage is not configured");
+    await kv.put(prefsKey(props), JSON.stringify(prefs));
+}
 
 // Grants store every building of the org: [{id, name, tz}]. Older grants stored one.
 function locationsOf(props) {
@@ -37,7 +51,7 @@ function unauthorized() {
     });
 }
 
-export async function handleMcp(req, props, { robin: API }) {
+export async function handleMcp(req, props, { robin: API, kv }) {
     if (!props?.token || !(Date.parse(props.expire_at) > Date.now())) return unauthorized();
     if (req.method === "GET") return new Response("SSE streams are not supported; POST JSON-RPC", { status: 405, headers: { allow: "POST, DELETE" } });
     if (req.method === "DELETE") return new Response(null, { status: 200 });
@@ -54,6 +68,10 @@ export async function handleMcp(req, props, { robin: API }) {
         switch (msg.method) {
             case "initialize": {
                 const asked = msg.params?.protocolVersion;
+                const prefs = await loadPrefs(kv, props);
+                const office = prefs.office
+                    ? ` The user's office is ${prefs.office.seat} (${prefs.office.floor}, ${prefs.office.building}); free rooms are ranked by distance from it and book_room without a room picks the nearest free one.`
+                    : ` No office is set; offer set_office (a desk code such as "3A1") so rooms can be ranked by distance.`;
                 return rpcResult(msg.id, {
                     protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
                     capabilities: { tools: {} },
@@ -61,7 +79,7 @@ export async function handleMcp(req, props, { robin: API }) {
                     instructions: `Room booking for ${props.org_name} as ${props.email}. Buildings: ` +
                         locationsOf(props).map((l, i) => `${l.name} (${l.tz})${i === 0 ? " [default]" : ""}`).join(", ") +
                         `. Tools take an optional "building"; without it the default is used. Times are local to the building unless an offset is given. ` +
-                        `Confirm room, date and time with the user before booking.`,
+                        `Confirm room, date and time with the user before booking.` + office,
                 });
             }
             case "ping": return rpcResult(msg.id, {});
@@ -70,7 +88,7 @@ export async function handleMcp(req, props, { robin: API }) {
                 const tool = TOOL_IMPL[msg.params?.name];
                 if (!tool) return rpcError(msg.id, -32602, `Unknown tool: ${msg.params?.name}`);
                 try {
-                    const out = await tool(msg.params?.arguments || {}, robin, props);
+                    const out = await tool(msg.params?.arguments || {}, robin, props, { kv, prefs: await loadPrefs(kv, props) });
                     return rpcResult(msg.id, { content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out, null, 2) }], ...(typeof out === "string" ? {} : { structuredContent: out }) });
                 } catch (e) {
                     if (e instanceof RobinError && e.status === 401) return unauthorized();
@@ -91,7 +109,9 @@ const rpcError = (id, code, message, status = 200) => Response.json({ jsonrpc: "
 // ---------- Robin client ----------
 function makeClient(API, props) {
     return async function robin(path, opts = {}) {
-        const res = await fetch(API + path, {
+        const base = path.startsWith("atlas:") ? ATLAS : API;
+        path = path.replace(/^atlas:/, "");
+        const res = await fetch(base + path, {
             ...opts,
             headers: {
                 "Authorization": "Access-Token " + props.token,
@@ -164,6 +184,9 @@ async function loadSpaces(robin, props, loc) {
         robin(`/locations/${loc.id}/levels`).catch(() => ({ data: [] })),
     ]);
     const levels = new Map((lv.data || []).map((l) => [+l.id, l.name]));
+    const deskSpaces = (sp.data || [])
+        .filter((s) => (s.behaviors || []).includes("seats"))
+        .map((s) => ({ id: +s.id, level_id: s.level_id == null ? null : +s.level_id }));
     const spaces = (sp.data || [])
         .filter((s) => (s.behaviors || []).includes("scheduling") && s.calendar)
         .map((s) => ({
@@ -171,14 +194,107 @@ async function loadSpaces(robin, props, loc) {
             name: s.name,
             capacity: +s.capacity || 0,
             type: s.type,
+            level_id: s.level_id == null ? null : +s.level_id,
             floor: s.level_id == null ? null : levels.get(+s.level_id) ?? String(s.level_id),
             notes: (s.description || "").trim() || undefined,
             cal: s.calendar ? { type: s.calendar.remote_type, mailbox: s.calendar.space_resource_email } : null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    const entry = { at: Date.now(), spaces, levels };
+    const entry = { at: Date.now(), spaces, levels, deskSpaces };
     spacesCache.set(key, entry);
     return entry;
+}
+
+// ---------- geometry (atlas): room and seat centroids in the floorplan's world space ----------
+function centroid(geometry) {
+    const ring = geometry?.type === "Polygon" ? geometry.coordinates?.[0] : geometry?.type === "Point" ? [geometry.coordinates] : null;
+    if (!ring?.length) return null;
+    let x = 0, y = 0;
+    for (const [px, py] of ring) { x += px; y += py; }
+    return { x: x / ring.length, y: y / ring.length };
+}
+async function atlasLayer(robin, layer, ids) {
+    const out = new Map();
+    for (let i = 0; i < ids.length; i += 100) {
+        const json = await robin(`atlas:/layers/${layer}?ids=${ids.slice(i, i + 100).join(",")}`);
+        const feats = Array.isArray(json) ? json : json.data || json.features || [];
+        for (const f of feats) {
+            const c = centroid(f.geometry);
+            if (c && f.properties?.ownerId != null) out.set(+f.properties.ownerId, c);
+        }
+    }
+    return out;
+}
+async function loadGeometry(robin, props, loc) {
+    const key = `${props.org_id}:${loc.id}`;
+    const hit = geoCache.get(key);
+    if (hit && Date.now() - hit.at < SPACES_TTL) return hit;
+    const { spaces, deskSpaces } = await loadSpaces(robin, props, loc);
+    const rooms = await atlasLayer(robin, "spaces", spaces.map((s) => s.id));
+    const seatLists = await Promise.all(deskSpaces.map(async (d) => {
+        const json = await robin(`/spaces/${d.id}/seats?per_page=200`).catch(() => ({ data: [] }));
+        return (json.data || []).map((x) => ({ id: +x.id, name: x.name, space_id: d.id, level_id: d.level_id }));
+    }));
+    const seatRows = seatLists.flat();
+    const seatGeo = await atlasLayer(robin, "seats", seatRows.map((x) => x.id)).catch(() => new Map());
+    const seats = seatRows.map((x) => ({ ...x, ...(seatGeo.get(x.id) || {}) })).filter((x) => x.x != null);
+    // "A floor apart" costs about the width of the floorplan, so a room next door beats one upstairs.
+    const xs = [...rooms.values()].map((c) => c.x), ys = [...rooms.values()].map((c) => c.y);
+    const span = xs.length ? Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 360;
+    const entry = { at: Date.now(), rooms, seats, floorPenalty: span || 360 };
+    geoCache.set(key, entry);
+    return entry;
+}
+
+// Resolve a desk code ("3A1", "3A1_2") to an office record. A bare group code is the
+// centroid of all its seats.
+async function resolveOffice(robin, props, loc, code) {
+    const { levels } = await loadSpaces(robin, props, loc);
+    const { seats } = await loadGeometry(robin, props, loc);
+    const norm = (v) => String(v || "").toUpperCase().replace(/[\s-]/g, "");
+    const want = norm(code);
+    if (!want) throw new Error("office is required, e.g. \"3A1\"");
+    let hits = seats.filter((x) => norm(x.name) === want);
+    if (!hits.length) hits = seats.filter((x) => norm(x.name).startsWith(want + "_"));
+    if (!hits.length) {
+        const near = [...new Set(seats.map((x) => x.name.replace(/_\d+$/, "")))].filter((n) => norm(n).startsWith(want.slice(0, 3))).slice(0, 15);
+        throw new Error(`No desk matches "${code}" in ${loc.name}.` + (near.length ? ` Similar: ${near.join(", ")}` : ""));
+    }
+    const c = centroid({ type: "Polygon", coordinates: [hits.map((h) => [h.x, h.y])] });
+    const level_id = hits[0].level_id;
+    return {
+        building_id: loc.id,
+        building: loc.name,
+        level_id,
+        floor: level_id == null ? null : levels.get(level_id) ?? String(level_id),
+        seat: hits.length === 1 ? hits[0].name : hits[0].name.replace(/_\d+$/, ""),
+        seats: hits.length,
+        x: c.x,
+        y: c.y,
+    };
+}
+
+// Distance score from the user's office to a room: same floor = centroid distance, each
+// floor apart adds a floor's width. null when unknown (other building, no geometry).
+function distanceTo(room, office, geo) {
+    if (!office) return null; // officeContext() already checked the building
+    const c = geo.rooms.get(room.id);
+    if (!c || office.x == null) return null;
+    const floors = room.level_id == null || office.level_id == null ? 1 : Math.abs(levelIndexDelta(room.level_id, office.level_id, geo));
+    return Math.hypot(c.x - office.x, c.y - office.y) + floors * geo.floorPenalty;
+}
+function levelIndexDelta(a, b, geo) {
+    if (a === b) return 0;
+    const n = (id) => { const m = /(\d+)/.exec(geo.levelNames?.get(id) || ""); return m ? +m[1] : null; };
+    const na = n(a), nb = n(b);
+    return na != null && nb != null ? na - nb : 1;
+}
+function rankByDistance(rooms, office, geo) {
+    if (!office || !geo) return rooms.map((r) => ({ ...r }));
+    return rooms
+        .map((r) => ({ ...r, _d: distanceTo(r, office, geo) }))
+        .sort((a, b) => (a._d ?? Infinity) - (b._d ?? Infinity))
+        .map(({ _d, ...r }, i) => ({ ...r, ...(_d == null ? {} : { distance_rank: i + 1, same_floor: r.level_id === office.level_id }) }));
 }
 
 function findRoom(spaces, q) {
@@ -213,7 +329,18 @@ async function eventsFor(robin, space, after, before, tz) {
 const overlaps = (ev, start, end) => ev.start < end && ev.end > start;
 
 function publicRoom(s) {
-    return { id: s.id, name: s.name, capacity: s.capacity, floor: s.floor ?? undefined, notes: s.notes, bookable: !!s.cal };
+    const { id, name, capacity, floor, notes, cal, distance_rank, same_floor } = s;
+    return { id, name, capacity, floor: floor ?? undefined, notes, bookable: !!cal, distance_rank, same_floor };
+}
+// Attach the office + geometry context a tool needs to rank rooms, when the user has one.
+async function officeContext(robin, props, loc, prefs) {
+    const office = prefs?.office;
+    if (!office || office.building_id !== loc.id) return { office: null, geo: null };
+    try {
+        const geo = await loadGeometry(robin, props, loc);
+        geo.levelNames = (await loadSpaces(robin, props, loc)).levels;
+        return { office, geo };
+    } catch { return { office, geo: null }; }
 }
 function publicEvent(ev, tz, props, spaces) {
     const room = spaces?.find((s) => s.id === ev.space_id);
@@ -234,6 +361,17 @@ function window_(args, tz) {
     return { start, end };
 }
 
+async function freeRooms(robin, props, loc, start, end, min, prefs) {
+    const tz = loc.tz;
+    const { spaces } = await loadSpaces(robin, props, loc);
+    const candidates = spaces.filter((s) => s.cal && s.capacity >= min);
+    const [busy, { office, geo }] = await Promise.all([
+        Promise.all(candidates.map(async (s) => (await eventsFor(robin, s, start, end, tz)).some((e) => overlaps(e, start, end)))),
+        officeContext(robin, props, loc, prefs),
+    ]);
+    return { office, rooms: rankByDistance(candidates.filter((_, i) => !busy[i]), office, geo) };
+}
+
 // ---------- tools ----------
 const TIME_DESC = "Building-local time as YYYY-MM-DDTHH:MM, or ISO 8601 with an offset.";
 
@@ -250,8 +388,20 @@ export const TOOLS = [
         },
     },
     {
+        name: "set_office",
+        description: "Remember where the user sits (a desk code such as \"3A1\" or \"3A1_2\") so free rooms are ranked by distance from it. An empty office clears it.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                office: { type: "string", description: "Desk/office code as labelled on the floorplan. Empty string to clear." },
+                building: { type: "string", description: "Building the office is in. Default: the first one." },
+            },
+            required: ["office"],
+        },
+    },
+    {
         name: "find_free_rooms",
-        description: "Rooms that are free for the whole of a time window.",
+        description: "Rooms that are free for the whole of a time window. When the user's office is set, results are ordered nearest-first (distance_rank 1 = closest; same_floor tells whether it is on the office's floor).",
         inputSchema: {
             type: "object",
             properties: {
@@ -291,14 +441,15 @@ export const TOOLS = [
     },
     {
         name: "book_room",
-        description: "Book a room. Refuses if the room is already busy in that window. The user gets the calendar invite; extra invitees must be org members.",
+        description: "Book a room. Refuses if the room is already busy in that window. Omit room to book the free room nearest the user's office (requires set_office). The user gets the calendar invite; extra invitees must be org members.",
         inputSchema: {
             type: "object",
             properties: {
-                room: { type: "string", description: "Room name (or id) from list_rooms." },
+                room: { type: "string", description: "Room name (or id) from list_rooms. Omit for the nearest free room to the user's office." },
                 start: { type: "string", description: TIME_DESC },
                 end: { type: "string", description: TIME_DESC + " Defaults to start + duration_minutes." },
                 duration_minutes: { type: "integer", description: "Used when end is omitted. Default 30." },
+                min_capacity: { type: "integer", description: "When room is omitted: smallest acceptable room." },
                 title: { type: "string", description: "Event title. Default: the user's name's meeting." },
                 description: { type: "string" },
                 invitees: { type: "array", items: { type: "string" }, description: "Extra attendee emails (org members only)." },
@@ -306,7 +457,7 @@ export const TOOLS = [
                 recurrence: { type: "string", description: "Optional RRULE, e.g. RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4" },
                 building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
             },
-            required: ["room", "start"],
+            required: ["start"],
         },
     },
     {
@@ -337,33 +488,44 @@ export const TOOLS = [
 ];
 
 const TOOL_IMPL = {
-    async list_rooms(args, robin, props) {
+    async set_office(args, robin, props, { kv, prefs }) {
+        const code = String(args.office || "").trim();
+        if (!code) {
+            delete prefs.office;
+            await savePrefs(kv, props, prefs);
+            return { office: null, message: "Office cleared." };
+        }
+        const loc = pickLocation(props, args.building);
+        const office = await resolveOffice(robin, props, loc, code);
+        prefs.office = office;
+        await savePrefs(kv, props, prefs);
+        return { office: { seat: office.seat, seats_in_group: office.seats, floor: office.floor, building: office.building } };
+    },
+
+    async list_rooms(args, robin, props, { prefs }) {
         const loc = pickLocation(props, args.building);
         const { spaces } = await loadSpaces(robin, props, loc);
         const min = +args.min_capacity || 0;
+        const { office, geo } = await officeContext(robin, props, loc, prefs);
         return {
             building: loc.name,
             time_zone: loc.tz,
             other_buildings: locationsOf(props).filter((l) => l.id !== loc.id).map((l) => l.name),
-            rooms: spaces.filter((s) => s.capacity >= min).map(publicRoom),
+            office: office ? `${office.seat} (${office.floor})` : undefined,
+            rooms: rankByDistance(spaces.filter((s) => s.capacity >= min), office, geo).map(publicRoom),
         };
     },
 
-    async find_free_rooms(args, robin, props) {
+    async find_free_rooms(args, robin, props, { prefs }) {
         const loc = pickLocation(props, args.building);
         const tz = loc.tz;
         const { start, end } = window_(args, tz);
-        const { spaces } = await loadSpaces(robin, props, loc);
-        const min = +args.min_capacity || 0;
-        const candidates = spaces.filter((s) => s.cal && s.capacity >= min);
-        const busy = await Promise.all(candidates.map(async (s) => {
-            const evs = await eventsFor(robin, s, start, end, tz);
-            return evs.some((e) => overlaps(e, start, end));
-        }));
+        const free = await freeRooms(robin, props, loc, start, end, +args.min_capacity || 0, prefs);
         return {
             building: loc.name,
+            office: free.office ? `${free.office.seat} (${free.office.floor})` : undefined,
             window: { start: toLocal(start, tz), end: toLocal(end, tz), time_zone: tz },
-            free_rooms: candidates.filter((_, i) => !busy[i]).map(publicRoom),
+            free_rooms: free.rooms.map(publicRoom),
         };
     },
 
@@ -388,12 +550,22 @@ const TOOL_IMPL = {
         return { building: loc.name, date: args.date, bookings: mine.map((e) => publicEvent(e, tz, props, spaces)) };
     },
 
-    async book_room(args, robin, props) {
+    async book_room(args, robin, props, { prefs }) {
         const loc = pickLocation(props, args.building);
         const tz = loc.tz;
         const { start, end } = window_(args, tz);
         const { spaces } = await loadSpaces(robin, props, loc);
-        const room = findRoom(spaces, args.room);
+        let room;
+        if (String(args.room || "").trim()) {
+            room = findRoom(spaces, args.room);
+        } else {
+            if (!prefs.office) throw new Error("No room given and no office set. Name a room, or call set_office first so the nearest free room can be picked.");
+            // Nearest free *meeting* room: no break rooms, and at least two seats unless told otherwise.
+            const free = await freeRooms(robin, props, loc, start, end, +args.min_capacity || 2, prefs);
+            const usable = free.rooms.filter((r) => r.type !== "break_room");
+            room = usable.find((r) => r.distance_rank != null) || usable[0];
+            if (!room) throw new Error("No room is free in that window.");
+        }
         if (!room.cal) throw new Error(`${room.name} has no calendar and cannot be booked through Robin.`);
         const clash = (await eventsFor(robin, room, start, end, tz)).filter((e) => overlaps(e, start, end));
         if (clash.length) {
@@ -421,6 +593,8 @@ const TOOL_IMPL = {
             event_id: ev.id,
             building: loc.name,
             room: room.name,
+            floor: room.floor ?? undefined,
+            distance_rank: room.distance_rank,
             title: body.title,
             start: toLocal(start, tz),
             end: toLocal(end, tz),
