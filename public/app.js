@@ -267,17 +267,36 @@ function slotLabel(i) {
     return h12 + (h < 12 ? "a" : "p");
 }
 
-let freeNowOnly = false;
-function isFreeNow(id) {
-    const now = new Date();
-    if (now.toDateString() !== day.toDateString()) return true;
-    const m = now.getHours() * 60 + now.getMinutes();
+// time filter (header "Free at" select): null = any time, "now" = next 30 min from now,
+// or a minute-of-day. Also drives the map's free/busy colouring.
+let filterMin = null;
+function filterStartMin() {
+    if (filterMin === "now") {
+        const now = new Date();
+        if (now.toDateString() !== day.toDateString()) return null;
+        return now.getHours() * 60 + now.getMinutes();
+    }
+    return filterMin;
+}
+function isFreeAt(id, m) {
     return !(events.get(id) || []).some((e) => e.startMin < m + 30 && e.endMin > m);
 }
-// what actually renders: the fetch list (visibleSpaces) minus free-now filtering
+function renderTimeFilter() {
+    if (document.activeElement === $("freeat")) return; // don't yank an open dropdown
+    const opts = [`<option value="">Any time</option>`, `<option value="now"${filterMin === "now" ? " selected" : ""}>Now</option>`];
+    const minM = DAY_START * 60 + firstSlot() * STEP_MIN;
+    for (let m = DAY_START * 60; m < DAY_END * 60; m += 30) {
+        if (m + 30 <= minM && m !== filterMin) continue;
+        opts.push(`<option value="${m}"${m === filterMin ? " selected" : ""}>${fmtTime(m)}</option>`);
+    }
+    $("freeat").innerHTML = opts.join("");
+    $("freeat").classList.toggle("active", filterMin !== null);
+}
+// what actually renders: the fetch list (visibleSpaces) minus time filtering
 function displaySpaces() {
     const v = visibleSpaces();
-    return freeNowOnly ? v.filter((x) => x.cal && isFreeNow(x.id)) : v;
+    const m = filterStartMin();
+    return m === null ? v : v.filter((x) => x.cal && isFreeAt(x.id, m));
 }
 
 function renderGrid() {
@@ -285,11 +304,17 @@ function renderGrid() {
     const visible = displaySpaces();
     let html = "<colgroup><col>";
     const nowIdx = nowSlotIndex();
-    for (let i = 0; i < SLOTS; i++) html += `<col${i === nowIdx ? ' class="nowcol"' : ""}>`;
+    const fm = filterStartMin();
+    const selIdx = fm === null ? -1 : Math.floor((fm - DAY_START * 60) / STEP_MIN);
+    const first = firstSlot();
+    for (let i = first; i < SLOTS; i++) {
+        const cls = [i === nowIdx && "nowcol", i >= selIdx && i < selIdx + 30 / STEP_MIN && "selcol"].filter(Boolean).join(" ");
+        html += `<col${cls ? ` class="${cls}"` : ""}>`;
+    }
     html += "</colgroup><thead><tr><th class='room'></th>";
-    for (let i = 0; i < SLOTS; i++) {
+    for (let i = first; i < SLOTS; i++) {
         const lbl = slotLabel(i);
-        html += `<th${lbl ? ' class="hourstart"' : ""}>${lbl}</th>`;
+        html += `<th${lbl || i === first ? ' class="hourstart"' : ""}>${i === first ? fmtTime(DAY_START * 60 + i * STEP_MIN) : lbl}</th>`;
     }
     html += "</tr></thead><tbody>";
     for (const s of visible) {
@@ -298,6 +323,12 @@ function renderGrid() {
     html += "</tbody>";
     grid.innerHTML = html;
     $("datelabel").textContent = day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+// first column rendered: today's grid starts at the current slot (past slots are hidden);
+// other days show the full 8:00–19:00 range. Slot indices stay absolute (0 = 8:00).
+function firstSlot() {
+    return Math.max(0, nowSlotIndex());
 }
 
 function nowSlotIndex() {
@@ -316,7 +347,8 @@ function rowCells(s) {
     const tip = roomTip(s);
     const amen = amenEmojis(s);
     let html = `<td class="room"${tip ? ` title="${esc(tip)}"` : ""}>${esc(s.name)}<span class="cap">${s.capacity ? s.capacity + "p" : ""}</span>${s.note ? '<span class="note">&#9432;</span>' : ""}${amen ? `<span class="amen">${amen}</span>` : ""}</td>`;
-    let i = 0;
+    const first = firstSlot();
+    let i = first;
     while (i < SLOTS) {
         const m0 = DAY_START * 60 + i * STEP_MIN;
         const ev = evs.find((e) => e.startMin < m0 + STEP_MIN && e.endMin > m0);
@@ -329,7 +361,7 @@ function rowCells(s) {
             i = endSlot;
         } else {
             const past = isToday && m0 + STEP_MIN <= nowMin;
-            const hourstart = m0 % 60 === 0;
+            const hourstart = m0 % 60 === 0 || i === first;
             html += `<td class="slot${past ? " past" : ""}${hourstart ? " hourstart" : ""}" data-slot="${i}"></td>`;
             i++;
         }
@@ -422,7 +454,7 @@ $("grid").addEventListener("pointerdown", (e) => {
     const ths = [...document.querySelectorAll("#grid thead th:not(.room)")];
     const bounds = ths.map((t) => t.getBoundingClientRect().left);
     bounds.push(ths[ths.length - 1].getBoundingClientRect().right);
-    rsz = { td, tr, spaceId, ev, maxEnd, bounds, tdRect: td.getBoundingClientRect(), newEnd: ev.endMin, moved: false };
+    rsz = { td, tr, spaceId, ev, maxEnd, bounds, first: firstSlot(), tdRect: td.getBoundingClientRect(), newEnd: ev.endMin, moved: false };
     document.body.style.cursor = "ew-resize";
 });
 document.addEventListener("pointermove", (e) => {
@@ -433,7 +465,7 @@ document.addEventListener("pointermove", (e) => {
         const d = Math.abs(e.clientX - x);
         if (d < bd) { bd = d; best = i; }
     });
-    const ne = DAY_START * 60 + best * STEP_MIN;
+    const ne = DAY_START * 60 + (best + rsz.first) * STEP_MIN;
     rsz.newEnd = Math.max(rsz.ev.startMin + STEP_MIN, Math.min(ne, rsz.maxEnd));
     if (rsz.newEnd !== rsz.ev.endMin) rsz.moved = true;
     for (const c of rsz.tr.querySelectorAll("td[data-slot]")) {
@@ -450,7 +482,7 @@ document.addEventListener("pointermove", (e) => {
             cover.className = "shrinkcover";
             rsz.td.appendChild(cover);
         }
-        const bx = rsz.bounds[(rsz.newEnd - DAY_START * 60) / STEP_MIN];
+        const bx = rsz.bounds[(rsz.newEnd - DAY_START * 60) / STEP_MIN - rsz.first];
         cover.style.left = bx - rsz.tdRect.left - rsz.td.clientLeft + "px";
     } else if (cover) {
         cover.remove();
@@ -1080,7 +1112,6 @@ const ATLAS = "https://atlas.services.robinpowered.com";
 let view = "grid";
 let mapData = null;   // {levels:[{id,name}], plans:{levelId:svgUrl}, geo:{spaceId:[[x,y],...]}}
 let curLevel = null;
-let mapMin = null;    // selected map time, minutes of day
 
 async function atlas(path) {
     const res = await fetch(ATLAS + path, {
@@ -1134,7 +1165,9 @@ function planSize(url) {
     });
 }
 
-function defaultMapMin() {
+function mapMinute() {
+    const fm = filterStartMin();
+    if (fm !== null) return Math.max(DAY_START * 60, Math.min(fm, DAY_END * 60 - 30));
     const now = new Date();
     if (now.toDateString() === day.toDateString()) {
         const m = Math.ceil((now.getHours() * 60 + now.getMinutes()) / STEP_MIN) * STEP_MIN;
@@ -1146,7 +1179,7 @@ function defaultMapMin() {
 function renderMap() {
     if (!mapData) return;
     if (!curLevel || !mapData.plans[curLevel]) curLevel = mapData.levels[0]?.id;
-    if (mapMin === null) mapMin = defaultMapMin();
+    const mapMin = mapMinute();
     $("floors").innerHTML = mapData.levels.map((l) =>
         `<button class="floor${l.id === curLevel ? " sel" : ""}" data-level="${l.id}">${esc(l.name.replace("Floor ", ""))}</button>`).join(" ");
     for (const b of $("floors").querySelectorAll("button")) b.onclick = () => {
@@ -1154,11 +1187,6 @@ function renderMap() {
         localStorage.setItem(`robin.level:${site.loc_id}`, String(curLevel));
         renderMap();
     };
-    // time options: 30-min steps
-    const opts = [];
-    for (let m = DAY_START * 60; m < DAY_END * 60; m += 30) opts.push(`<option value="${m}"${m === mapMin ? " selected" : ""}>${fmtTime(m)}</option>`);
-    $("maptime").innerHTML = opts.join("");
-    $("maptime").onchange = () => { mapMin = +$("maptime").value; renderMap(); };
     const planUrl = mapData.plans[curLevel];
     const size = planSizes[planUrl];
     if (!size) {
@@ -1198,7 +1226,7 @@ function renderMap() {
         poly.onclick = (e) => {
             e.stopPropagation();
             const spaceId = +poly.dataset.space;
-            const slot = (mapMin - DAY_START * 60) / STEP_MIN;
+            const slot = Math.floor((mapMin - DAY_START * 60) / STEP_MIN);
             const evs = events.get(spaceId) || [];
             const ev = evs.find((x) => x.startMin < mapMin + 30 && x.endMin > mapMin);
             if (ev) { if (ev.mine) openEventPop(poly, spaceId, ev.id); return; }
@@ -1254,7 +1282,7 @@ let scrollNowPending = true;
 function scrollToNow() {
     const idx = nowSlotIndex();
     if (idx < 0) return;
-    const th = document.querySelectorAll("#grid thead th:not(.room)")[idx];
+    const th = document.querySelectorAll("#grid thead th:not(.room)")[idx - firstSlot()];
     const room = document.querySelector("#grid th.room");
     if (th) $("gridwrap").scrollLeft = Math.max(0, th.offsetLeft - room.offsetWidth - 80);
 }
@@ -1266,8 +1294,8 @@ function setDay(d) {
     day = d;
     hidePop();
     events.clear();
-    mapMin = null;
     scrollNowPending = d.toDateString() === new Date().toDateString();
+    renderTimeFilter();
     renderView();
     loadDay();
 }
@@ -1281,9 +1309,12 @@ $("datepick").onchange = () => {
 $("refresh").onclick = () => loadDay();
 $("mincap").onchange = () => { renderView(); loadDay(true); };
 $("logout").onclick = logout;
-$("freenow").onclick = () => {
-    freeNowOnly = !freeNowOnly;
-    $("freenow").classList.toggle("active", freeNowOnly);
+renderTimeFilter();
+$("freeat").onchange = () => {
+    const v = $("freeat").value;
+    filterMin = v === "" ? null : v === "now" ? "now" : +v;
+    $("freeat").classList.toggle("active", filterMin !== null);
+    hidePop();
     renderView();
 };
 
@@ -1303,6 +1334,7 @@ document.addEventListener("keydown", (e) => {
 // bookings ~every 90s while visible — Robin has no push/webhook channel
 setInterval(() => {
     if (!document.querySelector("tr[data-space]")) return;
+    renderTimeFilter();
     renderView();
     if (document.visibilityState === "visible" && Date.now() - lastLoad > 90000) loadDay();
 }, 60000);

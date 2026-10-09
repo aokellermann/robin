@@ -115,5 +115,9 @@ probing; Robin's public docs don't cover most of this.
   `robin.level:<locId>`; spaces refresh in the background. On 401 the app logs out.
 - Grid: rooms × 15-min slots (8:00–19:00). Click a free slot → book popover; click one of your own
   bookings (green) → cancel. "Mine" = `creator_id` matches the logged-in `account_id`.
+- The header's "Free at" select (`#freeat`, state `filterMin`: `null` / `"now"` / minute-of-day) is
+  the one time filter for both views: it hides rooms busy in that 30-min window in the grid (and
+  tints the two columns) and picks the time the map colours by. With no filter the map colours by
+  the current time (today) or 9:00. There is no separate map-only time picker.
 - The wrangler `compatibility_date` is pinned to 2026-05-01 because the installed wrangler
   4.92.0's local runtime rejects newer dates; bump alongside a wrangler upgrade if desired.

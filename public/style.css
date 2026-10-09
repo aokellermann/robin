@@ -97,7 +97,7 @@ header .spacer { flex: 1; }
 header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
 header .who { color: var(--muted); font-size: 12px; }
 #status { color: var(--muted); font-size: 12px; min-width: 70px; }
-#freenow.active { border-color: var(--accent); color: var(--accent); }
+#freeat.active { border-color: var(--accent); color: var(--accent); }
 
 /* my-day strip */
 #myday {
@@ -200,6 +200,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 }
 #grid td.past { opacity: 0.45; }
 #grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
+#grid col.selcol { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 #grid th.hourstart, #grid td.hourstart { border-left: 2px solid var(--muted); }
 
 /* popover */
