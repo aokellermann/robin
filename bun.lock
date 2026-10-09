@@ -1,0 +1,14 @@
+{
+  "lockfileVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "robin",
+      "dependencies": {
+        "@cloudflare/workers-oauth-provider": "^1.2.3",
+      },
+    },
+  },
+  "packages": {
+    "@cloudflare/workers-oauth-provider": ["@cloudflare/workers-oauth-provider@1.2.3", "", {}, "sha512-40eGeA3DnTOEl2ijHYY5Z9yNIf0fdjgomoaA6GHPo4FyKQw0oXPuy4GVjTE/uNfS/MoFAvzsuVBRwTPKUki4hA=="],
+  }
+}

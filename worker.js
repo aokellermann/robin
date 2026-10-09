@@ -74,7 +74,7 @@ function consentPage(details, handle) {
     ${details.redirectIsLoopback ? `<p class="warn">This sends access to an app on your computer. Continue only if you just started connecting from it.</p>` : ""}
     <p class="muted">Your password is sent from this page straight to api.robinpowered.com and never to this server.
        The server keeps only the resulting Robin access token (encrypted, valid about two weeks) so it can act for you.
-       <a href="https://github.com/aokellermann/robin" rel="noopener">Source</a>.</p>
+       You can disconnect at any time from your Claude settings.</p>
     <form id="form" data-handle="${esc(handle)}">
         <input id="l-email" type="email" placeholder="Email" autocomplete="username" required>
         <input id="l-pass" type="password" placeholder="Robin password" autocomplete="current-password" required>
@@ -153,13 +153,13 @@ const defaultHandler = {
     async fetch(req, env) {
         const url = new URL(req.url);
         try {
-            if (url.pathname === "/api/users" && req.method === "GET") return apiUsers(req);
-            if (url.pathname === "/authorize" && req.method === "GET") return authorizeGet(req, env);
-            if (url.pathname === "/authorize" && req.method === "POST") return authorizePost(req, env);
+            if (url.pathname === "/api/users" && req.method === "GET") return await apiUsers(req);
+            if (url.pathname === "/authorize" && req.method === "GET") return await authorizeGet(req, env);
+            if (url.pathname === "/authorize" && req.method === "POST") return await authorizePost(req, env);
         } catch (e) {
             if (e instanceof AuthorizationError && e.redirectTo) return Response.redirect(e.redirectTo, 302);
-            if (e instanceof AuthorizationError || e instanceof CimdFetchError) {
-                const msg = e instanceof AuthorizationError ? e.description : "This app could not be verified.";
+            if (e instanceof AuthorizationError || e instanceof CimdFetchError || e instanceof OAuthError) {
+                const msg = e instanceof CimdFetchError ? "This app could not be verified." : (e.description || e.message || "Invalid request");
                 if (req.method === "POST") return Response.json({ error: msg }, { status: 400 });
                 return new Response(msg, { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
             }

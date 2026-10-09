@@ -124,3 +124,46 @@ probing; Robin's public docs don't cover most of this.
   the current time (today) or 9:00. There is no separate map-only time picker.
 - The wrangler `compatibility_date` is pinned to 2026-05-01 because the installed wrangler
   4.92.0's local runtime rejects newer dates; bump alongside a wrangler upgrade if desired.
+
+## MCP server (`/mcp`) and OAuth
+
+Added 2026-10-08 so Claude Desktop / claude.ai (custom connector, URL `https://robin.aok.site/mcp`)
+and any other MCP client can book rooms. Multi-user by design: each person connects with their
+own Robin account.
+
+- `worker.js` wraps everything in `OAuthProvider` from `@cloudflare/workers-oauth-provider`
+  (the repo's only dependency; `bun install`, wrangler bundles it). Provider-owned routes:
+  `/oauth/token`, `/oauth/register` (DCR), `/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource/mcp`. KV binding `OAUTH_KV` (namespace
+  `526c7be479d541b6be6eea90220c6819` on the personal account) holds clients, grants and tokens;
+  `props` are encrypted with key material wrapped by the token, so KV never holds a usable
+  Robin token in the clear. `compatibility_flags: ["global_fetch_strictly_public"]` is required
+  for CIMD client lookups.
+- **`/authorize` is the consent page, rendered by the Worker** (`consentPage()` in worker.js,
+  script `public/authorize.js`, styles at the end of `style.css`). The browser logs in to
+  Robin directly (`POST /auth/users`, `remember_me: true`), picks org/building exactly like
+  `app.js`, then POSTs JSON `{handle, decision, token, account_id, email, expire_at, org_id,
+  org_name, loc_id, loc_name, tz}` to `/authorize`. The Worker verifies the token with
+  `GET /me/organizations` (and that `org_id` is one of them) before `approveConsent` +
+  `completeAuthorization`, so a caller can only bind their own Robin session. **The password
+  never reaches the Worker** — keep it that way; it is the whole trust argument for other users.
+  The page sets its own CSP (`_headers` only covers static assets).
+- Robin tokens last ~14 days and cannot be refreshed, so `tokenExchangeCallback` caps
+  `accessTokenTTL` to the time left and throws `invalid_grant` (which revokes the grant) once
+  `expire_at` has passed; `refreshTokenTTL` is 15 days. `/mcp` answers 401 `invalid_token` when
+  the stored token is expired or Robin returns 401, which makes the client re-run the flow.
+- `mcp.js` is a hand-rolled **stateless** Streamable HTTP server (POST JSON-RPC → JSON; GET 405,
+  notifications 202, no batching, no sessions). Tools: `list_rooms`, `find_free_rooms`,
+  `room_schedule`, `my_bookings`, `book_room` (conflict-checks first, always invites the user),
+  `edit_booking`, `cancel_booking`. "Mine" = `creator_id` match, same as the app (there is no
+  verified `/me/events` usage; `my_bookings` fans out over all rooms). Spaces are cached in
+  module memory for 10 min per org/location. Time parsing: `YYYY-MM-DDTHH:MM` is building-local
+  (`props.tz`, via Intl offset math), anything with an offset/Z is taken as-is; output is always
+  Robin's millisecond-free `±HH:MM` format. Robin API rules above apply unchanged.
+- Local testing: `wrangler dev --port 8799 --local-protocol https` (8787 is often taken by
+  another repo's dev server; **https is required** or the metadata is published as `http://`
+  and the resource lookup 404s). Register a client with `POST /oauth/register`, GET
+  `/authorize?...` with PKCE and a cookie jar, POST the approve JSON with the same jar, exchange
+  the code at `/oauth/token`, then call `/mcp` with `Authorization: Bearer`. A real Robin token
+  for the approve step can be minted from the `dashboard.robinpowered.com` rbw entry with
+  `remember_me: false` (2 h). Verified end to end on 2026-10-08.
