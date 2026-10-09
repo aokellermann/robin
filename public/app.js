@@ -1177,6 +1177,9 @@ function mapMinute() {
     return 9 * 60;
 }
 
+function defaultLevel() {
+    return +localStorage.getItem(`robin.level:${site.loc_id}`) || null;
+}
 function renderMap() {
     if (!mapData) return;
     if (!curLevel || !mapData.plans[curLevel]) curLevel = mapData.levels[0]?.id;
@@ -1185,7 +1188,15 @@ function renderMap() {
         `<button class="floor${l.id === curLevel ? " sel" : ""}" data-level="${l.id}">${esc(l.name.replace("Floor ", ""))}</button>`).join(" ");
     for (const b of $("floors").querySelectorAll("button")) b.onclick = () => {
         curLevel = +b.dataset.level;
-        localStorage.setItem(`robin.level:${site.loc_id}`, String(curLevel));
+        renderMap();
+    };
+    // the default floor (robin.level:<locId>) is set explicitly, not by browsing floors
+    const isDefault = defaultLevel() === curLevel;
+    $("defaultfloor").textContent = isDefault ? "\u2605 Default floor" : "\u2606 Set as default";
+    $("defaultfloor").classList.toggle("active", isDefault);
+    $("defaultfloor").onclick = () => {
+        if (isDefault) localStorage.removeItem(`robin.level:${site.loc_id}`);
+        else localStorage.setItem(`robin.level:${site.loc_id}`, String(curLevel));
         renderMap();
     };
     const planUrl = mapData.plans[curLevel];
@@ -1377,7 +1388,7 @@ async function start() {
     }
     document.title = site.loc_name + " Rooms";
     $("sitename").textContent = site.loc_name;
-    curLevel = +localStorage.getItem(`robin.level:${site.loc_id}`) || null;
+    curLevel = defaultLevel();
     $("app").style.display = "flex";
     $("who").textContent = auth.email;
     await loadSpaces();
