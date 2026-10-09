@@ -1322,7 +1322,20 @@ $("freeat").onchange = () => {
     $("freeat").classList.toggle("active", filterMin !== null);
     hidePop();
     renderView();
+    if (view === "grid") scrollToMinute(filterStartMin());
 };
+// centre the grid viewport on a time (minutes of day); null = no-op
+function scrollToMinute(m) {
+    if (m === null) return;
+    const idx = Math.floor((m - DAY_START * 60) / STEP_MIN) - firstSlot();
+    const th = document.querySelectorAll("#grid thead th:not(.room)")[idx];
+    if (!th) return;
+    const wrap = $("gridwrap");
+    const room = document.querySelector("#grid th.room").offsetWidth;
+    // centre the 30-min window within the scrollable (non-room) part of the viewport
+    const target = th.offsetLeft + th.offsetWidth * (30 / STEP_MIN) / 2;
+    wrap.scrollTo({ left: Math.max(0, target - room - (wrap.clientWidth - room) / 2), behavior: "smooth" });
+}
 
 // keyboard shortcuts (outside inputs and popovers)
 document.addEventListener("keydown", (e) => {
