@@ -132,8 +132,8 @@ probing; Robin's public docs don't cover most of this.
   the one time filter for both views: it hides rooms busy in that 30-min window in the grid (and
   tints the two columns) and picks the time the map colours by. With no filter the map colours by
   the current time (today) or 9:00. There is no separate map-only time picker.
-- The wrangler `compatibility_date` is pinned to 2026-05-01 because the installed wrangler
-  4.92.0's local runtime rejects newer dates; bump alongside a wrangler upgrade if desired.
+- The wrangler `compatibility_date` tracks the date of the last wrangler upgrade (2026-10-09,
+  wrangler 4.149.0): wrangler's bundled runtime rejects dates newer than itself, so bump both together.
 
 ## MCP server (`/mcp`) and OAuth
 
