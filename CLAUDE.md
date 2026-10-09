@@ -17,7 +17,8 @@ org, buildings, floors, rooms or desks in tracked files (README, CLAUDE.md, code
 tool descriptions, tests): no real desk codes, room names, building names, floor numbers,
 org ids, account ids or email addresses. Use obviously generic examples (desk `3A1`, "Room
 A") and describe room types by Robin's `type` values, not by what the author's building has.
-Deployment config (`robin.aok.site`, the KV namespace id in `wrangler.jsonc`) is fine.
+Deployment config (`robin.aok.site`, the KV namespace id in `wrangler.jsonc`) is fine; the
+Cloudflare account itself (plan, billing, quotas) is not.
 
 ## Commands
 
