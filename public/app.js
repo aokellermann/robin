@@ -664,6 +664,12 @@ function clampPop() {
 }
 new ResizeObserver(clampPop).observe($("pop"));
 
+// duration choices for the book/edit popovers (minutes); long bookings cap at the day end
+const DURATIONS = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480];
+function fmtDur(min) {
+    const h = Math.floor(min / 60), m = min % 60;
+    return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m} min`;
+}
 function fmtTime(min) {
     const h = Math.floor(min / 60), m = min % 60;
     const h12 = ((h + 11) % 12) + 1;
@@ -903,7 +909,7 @@ function openBookPop(td, spaceId, slot) {
     let maxEnd = DAY_END * 60;
     for (const ev of evs) if (ev.startMin >= startMin) maxEnd = Math.min(maxEnd, ev.startMin);
     const maxDur = maxEnd - startMin;
-    const durations = [15, 30, 45, 60, 90, 120].filter((d) => d <= maxDur);
+    const durations = DURATIONS.filter((d) => d <= maxDur);
     if (!durations.length) return;
     let prefs = {};
     try { prefs = JSON.parse(localStorage.getItem("robin.prefs")) || {}; } catch {}
@@ -921,7 +927,7 @@ function openBookPop(td, spaceId, slot) {
         ${recControlsHtml(null, "Does not repeat")}
         <label class="chk"><input type="checkbox" id="p-priv">Private</label>
         <div class="row">
-            <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === defDur ? " selected" : ""}>${d} min</option>`).join("")}</select>
+            <select id="p-dur">${durations.map((d) => `<option value="${d}"${d === defDur ? " selected" : ""}>${fmtDur(d)}</option>`).join("")}</select>
             <button id="p-cancel">Cancel</button>
             <button class="primary" id="p-book">Book</button>
         </div>
@@ -1032,7 +1038,7 @@ async function openEditPop(el, spaceId, eventId) {
     const starts = [];
     for (let m = DAY_START * 60; m < DAY_END * 60; m += STEP_MIN) starts.push(m);
     if (!starts.includes(startMin)) starts.push(startMin), starts.sort((a, b) => a - b);
-    const durs = [15, 30, 45, 60, 90, 120];
+    const durs = [...DURATIONS];
     if (!durs.includes(dur)) durs.push(dur), durs.sort((a, b) => a - b);
     pop.innerHTML = `
         <div class="head">Edit — ${esc(s.name)}${isInstance ? '<span class="sub"> (this occurrence)</span>' : ""}</div>
@@ -1041,7 +1047,7 @@ async function openEditPop(el, spaceId, eventId) {
         ${chipsHtml}
         <div class="row">
             <select id="p-start">${starts.map((m) => `<option value="${m}"${m === startMin ? " selected" : ""}>${fmtTime(m)}</option>`).join("")}</select>
-            <select id="p-dur">${durs.map((x) => `<option value="${x}"${x === dur ? " selected" : ""}>${x} min</option>`).join("")}</select>
+            <select id="p-dur">${durs.map((x) => `<option value="${x}"${x === dur ? " selected" : ""}>${fmtDur(x)}</option>`).join("")}</select>
         </div>
         ${isInstance ? '<div class="sub">Series repeats:</div>' : ""}
         ${recControlsHtml(masterRule, isInstance ? "Stop repeating" : "Does not repeat")}
