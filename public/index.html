@@ -29,8 +29,10 @@
         <button id="prev">‹</button>
         <button id="today">Today</button>
         <button id="next">›</button>
-        <span class="datelabel" id="datelabel"></span>
-        <input type="date" id="datepick">
+        <span class="datewrap">
+            <button class="datelabel" id="datelabel" title="Pick a date"></button>
+            <input type="date" id="datepick" tabindex="-1" aria-hidden="true">
+        </span>
         <select id="mincap">
             <option value="0">Any size</option>
             <option value="2">2+</option>

@@ -94,7 +94,11 @@ header {
 }
 header .title { font-weight: 700; margin-right: 8px; border: none; background: none; padding: 0; }
 header .spacer { flex: 1; }
+/* the native date input is kept (for its picker and change event) but hidden under the
+   weekday button, which opens it via showPicker() */
+header .datewrap { position: relative; }
 header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
+#datepick { position: absolute; left: 0; bottom: 0; width: 100%; height: 0; opacity: 0; border: 0; padding: 0; pointer-events: none; }
 header .who { color: var(--muted); font-size: 12px; }
 #status { color: var(--muted); font-size: 12px; min-width: 70px; }
 #freeat.active { border-color: var(--accent); color: var(--accent); }
@@ -332,7 +336,6 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     header .who { display: none; }
     #status { display: none; }
     #refresh { display: none; } /* auto-refresh covers it; taps go to pull-to-refresh */
-    #datepick { max-width: 130px; }
     #grid td.room, #grid th.room {
         min-width: 0;
         max-width: 38vw;

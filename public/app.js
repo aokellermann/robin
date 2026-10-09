@@ -1302,6 +1302,11 @@ function setDay(d) {
 $("prev").onclick = () => setDay(new Date(day.getTime() - 864e5));
 $("next").onclick = () => setDay(new Date(day.getTime() + 864e5));
 $("today").onclick = () => setDay(startOfToday());
+$("datelabel").onclick = () => {
+    const dp = $("datepick");
+    if (dp.showPicker) { try { dp.showPicker(); return; } catch {} }
+    dp.style.pointerEvents = "auto"; dp.focus(); dp.click(); dp.style.pointerEvents = "";
+};
 $("datepick").onchange = () => {
     const [y, m, dd] = $("datepick").value.split("-").map(Number);
     if (y) setDay(new Date(y, m - 1, dd));
