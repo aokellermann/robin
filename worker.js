@@ -16,6 +16,10 @@ const GRAPHQL = "https://federation-gateway.robinpowered.com/graphql";
 const USERS_QUERY_HASH = "5a3d5281feda79e8939c7fcfa5d88f77d64618e4417529ab75bcb7a833fd3163";
 const SCOPE = "rooms";
 
+function validTz(tz) {
+    try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return tz; } catch { return "UTC"; }
+}
+
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 // Robin tokens from /auth/users with remember_me last ~14 days and cannot be refreshed,
@@ -83,7 +87,7 @@ function consentPage(details, handle) {
         <button id="l-deny" type="button">Deny</button>
     </form>
     <div id="site" hidden>
-        <h1>Choose a building</h1>
+        <h1>Choose an organization</h1>
         <div id="site-list"></div>
     </div>
 </div>
@@ -106,7 +110,7 @@ async function authorizeGet(req, env) {
 }
 
 // The page posts JSON: {handle, decision, token, account_id, email, expire_at, org_id,
-// org_name, loc_id, loc_name, tz}. The token is verified against Robin before anything is
+// org_name, locations: [{id, name, tz}]}. The token is verified against Robin before anything is
 // stored, so a caller can only ever bind their own Robin session to the grant.
 async function authorizePost(req, env) {
     const oauth = env.OAUTH_PROVIDER;
@@ -123,14 +127,15 @@ async function authorizePost(req, env) {
         expire_at: String(body.expire_at || ""),
         org_id: Number(body.org_id),
         org_name: String(body.org_name || "").slice(0, 200),
-        loc_id: Number(body.loc_id),
-        loc_name: String(body.loc_name || "").slice(0, 200),
-        tz: String(body.tz || "UTC").slice(0, 64),
+        locations: (Array.isArray(body.locations) ? body.locations : []).slice(0, 50).map((l) => ({
+            id: Number(l?.id),
+            name: String(l?.name || "").slice(0, 200),
+            tz: validTz(String(l?.tz || "")),
+        })).filter((l) => l.id > 0 && l.name),
     };
-    if (!props.token || !props.account_id || !props.org_id || !props.loc_id || !(robinSecondsLeft(props) > 60)) {
+    if (!props.token || !props.account_id || !props.org_id || !props.locations.length || !(robinSecondsLeft(props) > 60)) {
         return Response.json({ error: "Incomplete login" }, { status: 400 });
     }
-    try { new Intl.DateTimeFormat("en-US", { timeZone: props.tz }); } catch { props.tz = "UTC"; }
     const check = await fetch(`${ROBIN}/me/organizations`, {
         headers: { "Authorization": "Access-Token " + props.token },
     });
@@ -142,7 +147,7 @@ async function authorizePost(req, env) {
     const { redirectTo } = await oauth.completeAuthorization({
         request: approved.request,
         userId: `robin-${props.account_id}`,
-        metadata: { email: props.email, org: props.org_name, building: props.loc_name },
+        metadata: { email: props.email, org: props.org_name },
         scope: [SCOPE],
         props,
     });

@@ -141,9 +141,10 @@ own Robin account.
   for CIMD client lookups.
 - **`/authorize` is the consent page, rendered by the Worker** (`consentPage()` in worker.js,
   script `public/authorize.js`, styles at the end of `style.css`). The browser logs in to
-  Robin directly (`POST /auth/users`, `remember_me: true`), picks org/building exactly like
-  `app.js`, then POSTs JSON `{handle, decision, token, account_id, email, expire_at, org_id,
-  org_name, loc_id, loc_name, tz}` to `/authorize`. The Worker verifies the token with
+  Robin directly (`POST /auth/users`, `remember_me: true`), picks the org if there are several
+  (no building picker: every location of the org is stored and tools take an optional
+  `building`, defaulting to the first), then POSTs JSON `{handle, decision, token, account_id,
+  email, expire_at, org_id, org_name, locations: [{id, name, tz}]}` to `/authorize`. The Worker verifies the token with
   `GET /me/organizations` (and that `org_id` is one of them) before `approveConsent` +
   `completeAuthorization`, so a caller can only bind their own Robin session. **The password
   never reaches the Worker** — keep it that way; it is the whole trust argument for other users.
@@ -155,10 +156,10 @@ own Robin account.
 - `mcp.js` is a hand-rolled **stateless** Streamable HTTP server (POST JSON-RPC → JSON; GET 405,
   notifications 202, no batching, no sessions). Tools: `list_rooms`, `find_free_rooms`,
   `room_schedule`, `my_bookings`, `book_room` (conflict-checks first, always invites the user),
-  `edit_booking`, `cancel_booking`. "Mine" = `creator_id` match, same as the app (there is no
+  `edit_booking`, `cancel_booking`, all with an optional `building`. "Mine" = `creator_id` match, same as the app (there is no
   verified `/me/events` usage; `my_bookings` fans out over all rooms). Spaces are cached in
   module memory for 10 min per org/location. Time parsing: `YYYY-MM-DDTHH:MM` is building-local
-  (`props.tz`, via Intl offset math), anything with an offset/Z is taken as-is; output is always
+  (the chosen location's `tz`, via Intl offset math), anything with an offset/Z is taken as-is; output is always
   Robin's millisecond-free `±HH:MM` format. Robin API rules above apply unchanged.
 - Local testing: `wrangler dev --port 8799 --local-protocol https` (8787 is often taken by
   another repo's dev server; **https is required** or the metadata is published as `http://`

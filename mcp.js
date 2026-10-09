@@ -7,6 +7,22 @@ const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const SPACES_TTL = 10 * 60 * 1000;
 const spacesCache = new Map(); // `${org}:${loc}` -> {at, spaces, levels}
 
+// Grants store every building of the org: [{id, name, tz}]. Older grants stored one.
+function locationsOf(props) {
+    if (Array.isArray(props.locations) && props.locations.length) return props.locations;
+    return [{ id: props.loc_id, name: props.loc_name, tz: props.tz || "UTC" }];
+}
+function pickLocation(props, q) {
+    const locs = locationsOf(props);
+    q = String(q || "").trim();
+    if (!q) return locs[0];
+    const lc = q.toLowerCase();
+    const hit = locs.find((l) => String(l.id) === q || l.name.toLowerCase() === lc)
+        || (locs.filter((l) => l.name.toLowerCase().includes(lc)).length === 1 && locs.find((l) => l.name.toLowerCase().includes(lc)));
+    if (!hit) throw new Error(`No building matches "${q}". Buildings: ${locs.map((l) => l.name).join(", ")}`);
+    return hit;
+}
+
 class RobinError extends Error {
     constructor(status, message) { super(message); this.status = status; }
 }
@@ -42,8 +58,10 @@ export async function handleMcp(req, props, { robin: API }) {
                     protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
                     capabilities: { tools: {} },
                     serverInfo: { name: "robin-rooms", version: "1.0.0" },
-                    instructions: `Room booking for ${props.org_name} / ${props.loc_name} (time zone ${props.tz}) as ${props.email}. ` +
-                        `Times are local to the building unless an offset is given. Confirm room, date and time with the user before booking.`,
+                    instructions: `Room booking for ${props.org_name} as ${props.email}. Buildings: ` +
+                        locationsOf(props).map((l, i) => `${l.name} (${l.tz})${i === 0 ? " [default]" : ""}`).join(", ") +
+                        `. Tools take an optional "building"; without it the default is used. Times are local to the building unless an offset is given. ` +
+                        `Confirm room, date and time with the user before booking.`,
                 });
             }
             case "ping": return rpcResult(msg.id, {});
@@ -137,13 +155,13 @@ function dayRange(dateStr, tz) {
 }
 
 // ---------- spaces ----------
-async function loadSpaces(robin, props) {
-    const key = `${props.org_id}:${props.loc_id}`;
+async function loadSpaces(robin, props, loc) {
+    const key = `${props.org_id}:${loc.id}`;
     const hit = spacesCache.get(key);
     if (hit && Date.now() - hit.at < SPACES_TTL) return hit;
     const [sp, lv] = await Promise.all([
-        robin(`/locations/${props.loc_id}/spaces?per_page=200&include=calendar`),
-        robin(`/locations/${props.loc_id}/levels`).catch(() => ({ data: [] })),
+        robin(`/locations/${loc.id}/spaces?per_page=200&include=calendar`),
+        robin(`/locations/${loc.id}/levels`).catch(() => ({ data: [] })),
     ]);
     const levels = new Map((lv.data || []).map((l) => [+l.id, l.name]));
     const spaces = (sp.data || [])
@@ -225,7 +243,10 @@ export const TOOLS = [
         description: "List the bookable rooms in the user's building with capacity, floor and any notes (e.g. broken equipment).",
         inputSchema: {
             type: "object",
-            properties: { min_capacity: { type: "integer", description: "Only rooms seating at least this many." } },
+            properties: {
+                min_capacity: { type: "integer", description: "Only rooms seating at least this many." },
+                building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
+            },
         },
     },
     {
@@ -238,6 +259,7 @@ export const TOOLS = [
                 end: { type: "string", description: TIME_DESC + " Defaults to start + duration_minutes." },
                 duration_minutes: { type: "integer", description: "Used when end is omitted. Default 30." },
                 min_capacity: { type: "integer" },
+                building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
             },
             required: ["start"],
         },
@@ -250,6 +272,7 @@ export const TOOLS = [
             properties: {
                 room: { type: "string", description: "Room name (or id) from list_rooms." },
                 date: { type: "string", description: "YYYY-MM-DD" },
+                building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
             },
             required: ["room", "date"],
         },
@@ -259,7 +282,10 @@ export const TOOLS = [
         description: "The user's own room bookings on a date, across all rooms in the building.",
         inputSchema: {
             type: "object",
-            properties: { date: { type: "string", description: "YYYY-MM-DD" } },
+            properties: {
+                date: { type: "string", description: "YYYY-MM-DD" },
+                building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
+            },
             required: ["date"],
         },
     },
@@ -278,6 +304,7 @@ export const TOOLS = [
                 invitees: { type: "array", items: { type: "string" }, description: "Extra attendee emails (org members only)." },
                 private: { type: "boolean", description: "Hide the title from others." },
                 recurrence: { type: "string", description: "Optional RRULE, e.g. RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4" },
+                building: { type: "string", description: "Building name, when the org has several. Default: the first one." },
             },
             required: ["room", "start"],
         },
@@ -293,6 +320,7 @@ export const TOOLS = [
                 description: { type: "string" },
                 start: { type: "string", description: TIME_DESC + " Give start and end together." },
                 end: { type: "string", description: TIME_DESC },
+                building: { type: "string", description: "Building the booking is in (for its time zone). Default: the first one." },
             },
             required: ["event_id"],
         },
@@ -310,15 +338,22 @@ export const TOOLS = [
 
 const TOOL_IMPL = {
     async list_rooms(args, robin, props) {
-        const { spaces } = await loadSpaces(robin, props);
+        const loc = pickLocation(props, args.building);
+        const { spaces } = await loadSpaces(robin, props, loc);
         const min = +args.min_capacity || 0;
-        return { building: props.loc_name, time_zone: props.tz, rooms: spaces.filter((s) => s.capacity >= min).map(publicRoom) };
+        return {
+            building: loc.name,
+            time_zone: loc.tz,
+            other_buildings: locationsOf(props).filter((l) => l.id !== loc.id).map((l) => l.name),
+            rooms: spaces.filter((s) => s.capacity >= min).map(publicRoom),
+        };
     },
 
     async find_free_rooms(args, robin, props) {
-        const tz = props.tz;
+        const loc = pickLocation(props, args.building);
+        const tz = loc.tz;
         const { start, end } = window_(args, tz);
-        const { spaces } = await loadSpaces(robin, props);
+        const { spaces } = await loadSpaces(robin, props, loc);
         const min = +args.min_capacity || 0;
         const candidates = spaces.filter((s) => s.cal && s.capacity >= min);
         const busy = await Promise.all(candidates.map(async (s) => {
@@ -326,14 +361,16 @@ const TOOL_IMPL = {
             return evs.some((e) => overlaps(e, start, end));
         }));
         return {
+            building: loc.name,
             window: { start: toLocal(start, tz), end: toLocal(end, tz), time_zone: tz },
             free_rooms: candidates.filter((_, i) => !busy[i]).map(publicRoom),
         };
     },
 
     async room_schedule(args, robin, props) {
-        const tz = props.tz;
-        const { spaces } = await loadSpaces(robin, props);
+        const loc = pickLocation(props, args.building);
+        const tz = loc.tz;
+        const { spaces } = await loadSpaces(robin, props, loc);
         const room = findRoom(spaces, args.room);
         const { after, before } = dayRange(args.date, tz);
         const evs = await eventsFor(robin, room, after, before, tz);
@@ -342,18 +379,20 @@ const TOOL_IMPL = {
     },
 
     async my_bookings(args, robin, props) {
-        const tz = props.tz;
-        const { spaces } = await loadSpaces(robin, props);
+        const loc = pickLocation(props, args.building);
+        const tz = loc.tz;
+        const { spaces } = await loadSpaces(robin, props, loc);
         const { after, before } = dayRange(args.date, tz);
         const all = await Promise.all(spaces.filter((s) => s.cal).map((s) => eventsFor(robin, s, after, before, tz)));
         const mine = all.flat().filter((e) => e.creator_id === props.account_id).sort((a, b) => a.start - b.start);
-        return { date: args.date, bookings: mine.map((e) => publicEvent(e, tz, props, spaces)) };
+        return { building: loc.name, date: args.date, bookings: mine.map((e) => publicEvent(e, tz, props, spaces)) };
     },
 
     async book_room(args, robin, props) {
-        const tz = props.tz;
+        const loc = pickLocation(props, args.building);
+        const tz = loc.tz;
         const { start, end } = window_(args, tz);
-        const { spaces } = await loadSpaces(robin, props);
+        const { spaces } = await loadSpaces(robin, props, loc);
         const room = findRoom(spaces, args.room);
         if (!room.cal) throw new Error(`${room.name} has no calendar and cannot be booked through Robin.`);
         const clash = (await eventsFor(robin, room, start, end, tz)).filter((e) => overlaps(e, start, end));
@@ -380,6 +419,7 @@ const TOOL_IMPL = {
         return {
             booked: true,
             event_id: ev.id,
+            building: loc.name,
             room: room.name,
             title: body.title,
             start: toLocal(start, tz),
@@ -390,7 +430,7 @@ const TOOL_IMPL = {
     },
 
     async edit_booking(args, robin, props) {
-        const tz = props.tz;
+        const tz = pickLocation(props, args.building).tz;
         const id = String(args.event_id || "").trim();
         if (!id) throw new Error("event_id is required");
         const patch = {};

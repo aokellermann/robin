@@ -77,7 +77,8 @@ or touch anyone else's. Robin tokens last about two weeks and cannot be refreshe
 yours expires the connector asks you to reconnect.
 
 Tools: `list_rooms`, `find_free_rooms`, `room_schedule`, `my_bookings`, `book_room`,
-`edit_booking`, `cancel_booking`. Times are building-local `YYYY-MM-DDTHH:MM`.
+`edit_booking`, `cancel_booking`, each with an optional `building` when your org has several
+(the first is the default). Times are building-local `YYYY-MM-DDTHH:MM`.
 
 OAuth 2.1 with PKCE, dynamic client registration and Client ID Metadata Documents, via
 [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider)

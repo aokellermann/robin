@@ -329,6 +329,8 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 
 #menu .menu { left: auto; right: 0; display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
 #menu .menu button { text-align: left; }
+#menu .ghlink { color: var(--muted); font-size: 12px; padding: 4px 6px; border-top: 1px solid var(--line); margin-top: 2px; text-decoration: none; }
+#menu .ghlink:hover { color: var(--accent); }
 #menu summary { padding: 5px 9px; }
 
 /* map view */
@@ -386,6 +388,5 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 #login.consent p { margin: 0; }
 #login.consent .muted { color: var(--muted); font-size: 12px; }
 #login.consent .warn { color: var(--danger); font-weight: 600; }
-#login.consent form { display: contents; }
-#login.consent #site { display: contents; }
-#login.consent #site[hidden] { display: none; }
+#login.consent form, #login.consent #site { display: contents; }
+#login.consent form[hidden], #login.consent #site[hidden] { display: none; }

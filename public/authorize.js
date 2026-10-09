@@ -1,7 +1,7 @@
 "use strict";
 // Consent page for the MCP OAuth flow. The Robin login happens here, in the browser:
 // the password goes only to api.robinpowered.com; the Worker receives the resulting
-// access token plus the chosen org/building, verifies it against Robin, and stores it.
+// access token plus the chosen org and its buildings, verifies it against Robin, and stores it.
 const API = "https://api.robinpowered.com/v1.0";
 const $ = (id) => document.getElementById(id);
 const form = $("form");
@@ -68,7 +68,7 @@ form.onsubmit = async (e) => {
         const org = orgs.length === 1 ? orgs[0] : await choose("Choose an organization", orgs);
         const locs = (await robin(`/organizations/${org.id}/locations?per_page=100`, org.id)).data;
         if (!locs.length) throw new Error(`${org.name} has no locations`);
-        const loc = locs.length === 1 ? locs[0] : await choose("Choose a building", locs);
+        const fallbackTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
         await post({
             decision: "approve",
@@ -78,9 +78,7 @@ form.onsubmit = async (e) => {
             expire_at: auth.expire_at,
             org_id: +org.id,
             org_name: org.name,
-            loc_id: +loc.id,
-            loc_name: loc.name,
-            tz: loc.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+            locations: locs.map((l) => ({ id: +l.id, name: l.name, tz: l.time_zone || fallbackTz })),
         });
     } catch (err) {
         form.hidden = false;
