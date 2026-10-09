@@ -110,7 +110,8 @@ probing; Robin's public docs don't cover most of this.
 
 - Auth token + account_id stored in `localStorage["robin.auth"]`; the chosen org/building in
   `localStorage["robin.site"]` (`{org_id, org_name, loc_id, loc_name, tz}` — auto-picked when the
-  account has exactly one, otherwise a picker card is shown; the header title button switches).
+  account has exactly one, otherwise a picker card is shown; the building button in the header's
+  hamburger menu switches).
   Spaces/map/floor caches are keyed per location: `robin.spaces.v2:<locId>`, `robin.map:<locId>`,
   `robin.level:<locId>`; spaces refresh in the background. On 401 the app logs out.
 - Grid: rooms × 15-min slots (8:00–19:00). Click a free slot → book popover; click one of your own

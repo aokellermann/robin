@@ -25,32 +25,38 @@
 
 <div id="app">
     <header>
-        <button class="title" id="sitename" title="Switch building"></button>
-        <button id="prev">‹</button>
-        <button id="today">Today</button>
-        <button id="next">›</button>
-        <span class="datewrap">
+        <span class="group">
+            <button id="prev">‹</button>
             <button class="datelabel" id="datelabel" title="Pick a date"></button>
-            <input type="date" id="datepick" tabindex="-1" aria-hidden="true">
+            <button id="next">›</button>
+            <button id="today">Today</button>
         </span>
-        <select id="mincap">
-            <option value="0">Any size</option>
-            <option value="2">2+</option>
-            <option value="4">4+</option>
-            <option value="6">6+</option>
-            <option value="10">10+</option>
-        </select>
-        <details id="amenfilter">
-            <summary>Amenities</summary>
-            <div class="menu" id="amenmenu"></div>
-        </details>
-        <select id="freeat" title="Only rooms free for 30 minutes from this time"></select>
+        <span class="group">
+            <select id="freeat" title="Only rooms free for 30 minutes from this time"></select>
+            <select id="mincap">
+                <option value="0">Any size</option>
+                <option value="2" selected>2+</option>
+                <option value="4">4+</option>
+                <option value="6">6+</option>
+                <option value="10">10+</option>
+            </select>
+            <details id="amenfilter" class="dd">
+                <summary>Amenities</summary>
+                <div class="menu" id="amenmenu"></div>
+            </details>
+        </span>
         <button id="viewtoggle">Map</button>
         <span class="spacer"></span>
         <span id="status"></span>
-        <button id="refresh">Refresh</button>
-        <span class="who" id="who"></span>
-        <button id="logout">Log out</button>
+        <details id="menu" class="dd">
+            <summary title="Menu">&#9776;</summary>
+            <div class="menu">
+                <div class="who" id="who"></div>
+                <div class="who" id="sitename"></div>
+                <button id="switchsite">Switch building</button>
+                <button id="logout">Log out</button>
+            </div>
+        </details>
     </header>
     <div id="myday" hidden></div>
     <div id="gridwrap">

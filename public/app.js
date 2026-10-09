@@ -358,7 +358,7 @@ function rowCells(s) {
             const endSlot = Math.min(SLOTS, Math.ceil((ev.endMin - DAY_START * 60) / STEP_MIN));
             const span = Math.max(1, endSlot - i);
             const past = isToday && DAY_START * 60 + endSlot * STEP_MIN <= nowMin;
-            html += `<td class="slot busy${ev.mine ? ' mine" draggable="true' : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}${ev.mine ? '<span class="rsz"></span>' : ""}</td>`;
+            html += `<td class="slot busy${ev.mine ? ' mine" draggable="true' : ""}${past ? " past" : ""}" colspan="${span}" data-event="${esc(ev.id)}" title="${esc(ev.title)}">${esc(ev.title)}${ev.mine ? '<span class="rsz l"></span><span class="rsz"></span>' : ""}</td>`;
             i = endSlot;
         } else {
             const past = isToday && m0 + STEP_MIN <= nowMin;
@@ -433,7 +433,7 @@ $("grid").addEventListener("click", (e) => {
     else if (td.dataset.event && td.classList.contains("mine")) openEventPop(td, spaceId, td.dataset.event);
 });
 
-// drag the right edge of your own booking to change its duration
+// drag either edge of your own booking to change its start (left) or end (right)
 let rsz = null;
 let suppressClick = false;
 $("grid").addEventListener("pointerdown", (e) => {
@@ -446,65 +446,79 @@ $("grid").addEventListener("pointerdown", (e) => {
     if (!ev) return;
     e.preventDefault();
     td.removeAttribute("draggable");
-    let maxEnd = DAY_END * 60;
+    const side = h.classList.contains("l") ? "start" : "end";
+    const first = firstSlot();
+    // neighbouring bookings bound how far the edge can go
+    let maxEnd = DAY_END * 60, minStart = DAY_START * 60 + first * STEP_MIN;
     for (const x of events.get(spaceId) || []) {
-        if (x.id !== ev.id && x.startMin >= ev.endMin) maxEnd = Math.min(maxEnd, x.startMin);
+        if (x.id === ev.id) continue;
+        if (x.startMin >= ev.endMin) maxEnd = Math.min(maxEnd, x.startMin);
+        if (x.endMin <= ev.startMin) minStart = Math.max(minStart, x.endMin);
     }
     // snap to the actual rendered column boundaries (header cell edges) instead
     // of arithmetic scaling — border-collapse makes computed widths drift
     const ths = [...document.querySelectorAll("#grid thead th:not(.room)")];
     const bounds = ths.map((t) => t.getBoundingClientRect().left);
     bounds.push(ths[ths.length - 1].getBoundingClientRect().right);
-    rsz = { td, tr, spaceId, ev, maxEnd, bounds, first: firstSlot(), tdRect: td.getBoundingClientRect(), newEnd: ev.endMin, moved: false };
+    rsz = { td, tr, spaceId, ev, side, maxEnd, minStart, bounds, first, tdRect: td.getBoundingClientRect(),
+        newStart: ev.startMin, newEnd: ev.endMin, moved: false };
     document.body.style.cursor = "ew-resize";
 });
 document.addEventListener("pointermove", (e) => {
     if (!rsz) return;
-    // nearest column boundary to the cursor becomes the new end time
+    // nearest column boundary to the cursor becomes the new edge time
     let best = 0, bd = Infinity;
     rsz.bounds.forEach((x, i) => {
         const d = Math.abs(e.clientX - x);
         if (d < bd) { bd = d; best = i; }
     });
-    const ne = DAY_START * 60 + (best + rsz.first) * STEP_MIN;
-    rsz.newEnd = Math.max(rsz.ev.startMin + STEP_MIN, Math.min(ne, rsz.maxEnd));
-    if (rsz.newEnd !== rsz.ev.endMin) rsz.moved = true;
+    const m = DAY_START * 60 + (best + rsz.first) * STEP_MIN;
+    const { ev } = rsz;
+    if (rsz.side === "end") rsz.newEnd = Math.max(ev.startMin + STEP_MIN, Math.min(m, rsz.maxEnd));
+    else rsz.newStart = Math.min(ev.endMin - STEP_MIN, Math.max(m, rsz.minStart));
+    rsz.moved = rsz.moved || rsz.newEnd !== ev.endMin || rsz.newStart !== ev.startMin;
+    // free cells the booking would grow into
     for (const c of rsz.tr.querySelectorAll("td[data-slot]")) {
         const m0 = DAY_START * 60 + +c.dataset.slot * STEP_MIN;
-        c.classList.toggle("droptgt", m0 >= rsz.ev.endMin && m0 < rsz.newEnd);
+        c.classList.toggle("droptgt", (m0 >= ev.endMin && m0 < rsz.newEnd) || (m0 >= rsz.newStart && m0 < ev.startMin));
     }
-    // when shrinking, paint the trailing part of the cell as free space live,
-    // its left edge pinned to the real column boundary
+    // when shrinking, paint the released part of the cell as free space live,
+    // its edge pinned to the real column boundary
     let cover = rsz.td.querySelector(".shrinkcover");
-    const visEnd = Math.min(rsz.ev.endMin, DAY_END * 60);
-    if (rsz.newEnd < visEnd) {
+    const visEnd = Math.min(ev.endMin, DAY_END * 60);
+    const visStart = Math.max(ev.startMin, DAY_START * 60 + rsz.first * STEP_MIN);
+    const shrinking = rsz.side === "end" ? rsz.newEnd < visEnd : rsz.newStart > visStart;
+    if (shrinking) {
         if (!cover) {
             cover = document.createElement("div");
-            cover.className = "shrinkcover";
+            cover.className = "shrinkcover " + (rsz.side === "end" ? "r" : "l");
             rsz.td.appendChild(cover);
         }
-        const bx = rsz.bounds[(rsz.newEnd - DAY_START * 60) / STEP_MIN - rsz.first];
-        cover.style.left = bx - rsz.tdRect.left - rsz.td.clientLeft + "px";
+        const edge = rsz.side === "end" ? rsz.newEnd : rsz.newStart;
+        const bx = rsz.bounds[(edge - DAY_START * 60) / STEP_MIN - rsz.first] - rsz.tdRect.left - rsz.td.clientLeft;
+        if (rsz.side === "end") cover.style.left = bx + "px";
+        else cover.style.width = bx + "px";
     } else if (cover) {
         cover.remove();
     }
     const t = $("toast");
     clearTimeout(toastTimer);
-    t.textContent = `${fmtTime(rsz.ev.startMin)} \u2013 ${fmtTime(rsz.newEnd)}`;
+    t.textContent = `${fmtTime(rsz.newStart)} \u2013 ${fmtTime(rsz.newEnd)}`;
     t.style.display = "block";
 });
 document.addEventListener("pointerup", async () => {
     if (!rsz) return;
-    const { td, spaceId, ev, newEnd, moved } = rsz;
+    const { td, spaceId, ev, side, newStart, newEnd, moved } = rsz;
     rsz = null;
     document.body.style.cursor = "";
     for (const t of document.querySelectorAll(".droptgt")) t.classList.remove("droptgt");
-    if (newEnd === ev.endMin || newEnd >= Math.min(ev.endMin, DAY_END * 60)) td.querySelector(".shrinkcover")?.remove();
+    const changed = newStart !== ev.startMin || newEnd !== ev.endMin;
+    if (!changed || newEnd > ev.endMin || newStart < ev.startMin) td.querySelector(".shrinkcover")?.remove();
     $("toast").style.display = "none";
     td.setAttribute("draggable", "true");
     if (moved) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
-    if (newEnd === ev.endMin) return;
-    const start = new Date(day); start.setHours(0, ev.startMin, 0, 0);
+    if (!changed) return;
+    const start = new Date(day); start.setHours(0, newStart, 0, 0);
     const end = new Date(day); end.setHours(0, newEnd, 0, 0);
     td.classList.add("pending");
     try {
@@ -515,7 +529,9 @@ document.addEventListener("pointerup", async () => {
                 end: { date_time: isoLocal(end), time_zone: site.tz },
             }),
         });
-        toast(`${newEnd > ev.endMin ? "Extended" : "Shortened"} to ${fmtTime(newEnd)}`);
+        toast(side === "end"
+            ? `${newEnd > ev.endMin ? "Extended" : "Shortened"} to ${fmtTime(newEnd)}`
+            : `Now starts at ${fmtTime(newStart)}`);
         reloadSpace(spaceId);
     } catch (err) {
         toast("Resize failed: " + err.message);
@@ -616,8 +632,9 @@ $("grid").addEventListener("drop", async (e) => {
 });
 
 document.addEventListener("click", (e) => {
-    if (!e.target.closest("#pop") && !e.target.closest("td")) hidePop();
-    if (!e.target.closest("#amenfilter")) $("amenfilter").removeAttribute("open");
+    // a click that re-rendered its own button (calendar month nav) leaves e.target detached
+    if (e.target.isConnected && !e.target.closest("#pop") && !e.target.closest("td")) hidePop();
+    for (const dd of document.querySelectorAll("details.dd")) if (!e.target.closest("#" + dd.id)) dd.removeAttribute("open");
 });
 
 function positionPop(el) {
@@ -1280,7 +1297,6 @@ function renderView() {
     $("mapwrap").style.display = view === "map" ? "flex" : "none";
     $("viewtoggle").textContent = view === "grid" ? "Map" : "Grid";
     $("datelabel").textContent = day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    $("datepick").value = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     if (view === "grid") {
         renderGrid();
         if (scrollNowPending) { scrollToNow(); scrollNowPending = false; }
@@ -1314,16 +1330,30 @@ function setDay(d) {
 $("prev").onclick = () => setDay(new Date(day.getTime() - 864e5));
 $("next").onclick = () => setDay(new Date(day.getTime() + 864e5));
 $("today").onclick = () => setDay(startOfToday());
-$("datelabel").onclick = () => {
-    const dp = $("datepick");
-    if (dp.showPicker) { try { dp.showPicker(); return; } catch {} }
-    dp.style.pointerEvents = "auto"; dp.focus(); dp.click(); dp.style.pointerEvents = "";
+// month calendar popover, weeks starting Monday
+$("datelabel").onclick = (e) => {
+    e.stopPropagation(); // the document click handler would close it immediately
+    if ($("pop").style.display === "flex" && $("pop").querySelector(".cal")) { hidePop(); return; }
+    openDatePop(new Date(day.getFullYear(), day.getMonth(), 1));
 };
-$("datepick").onchange = () => {
-    const [y, m, dd] = $("datepick").value.split("-").map(Number);
-    if (y) setDay(new Date(y, m - 1, dd));
-};
-$("refresh").onclick = () => loadDay();
+function openDatePop(month) {
+    const pop = $("pop");
+    const today = startOfToday();
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    const start = new Date(first.getTime() - ((first.getDay() + 6) % 7) * 864e5); // back to Monday
+    let html = `<div class="calhead"><button id="cal-prev">\u2039</button><span class="head">${first.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</span><button id="cal-next">\u203a</button></div><div class="cal">`;
+    for (const d of ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]) html += `<span class="dow">${d}</span>`;
+    for (let i = 0; i < 42; i++) {
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+        const cls = [d.getMonth() !== first.getMonth() && "other", d.getTime() === today.getTime() && "today", d.toDateString() === day.toDateString() && "sel"].filter(Boolean).join(" ");
+        html += `<button type="button" class="${cls}" data-t="${d.getTime()}">${d.getDate()}</button>`;
+    }
+    pop.innerHTML = html + "</div>";
+    $("cal-prev").onclick = () => openDatePop(new Date(first.getFullYear(), first.getMonth() - 1, 1));
+    $("cal-next").onclick = () => openDatePop(new Date(first.getFullYear(), first.getMonth() + 1, 1));
+    for (const b of pop.querySelectorAll(".cal button")) b.onclick = () => setDay(new Date(+b.dataset.t));
+    positionPop($("datelabel"));
+}
 $("mincap").onchange = () => { renderView(); loadDay(true); };
 $("logout").onclick = logout;
 renderTimeFilter();
@@ -1398,6 +1428,6 @@ async function start() {
     loadAmenities();
     loadDirectory();
 }
-$("sitename").onclick = switchSite;
+$("switchsite").onclick = () => { $("menu").removeAttribute("open"); switchSite(); };
 auth = loadAuth();
 if (auth) start();

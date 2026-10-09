@@ -1,4 +1,8 @@
 :root {
+    /* color-scheme tells the browser which theme to draw native widgets in (the date
+       picker popup, select dropdowns, scrollbars); accent-color tints their selection */
+    color-scheme: light;
+    accent-color: #2f6f4f;
     --bg: #f6f5f2;
     --panel: #ffffff;
     --ink: #1c1b19;
@@ -15,6 +19,8 @@
 }
 @media (prefers-color-scheme: dark) {
     :root {
+        color-scheme: dark;
+        accent-color: #7fc79e;
         --bg: #191816;
         --panel: #211f1d;
         --ink: #ece9e2;
@@ -92,14 +98,12 @@ header {
     background: var(--panel);
     flex-wrap: wrap;
 }
-header .title { font-weight: 700; margin-right: 8px; border: none; background: none; padding: 0; }
 header .spacer { flex: 1; }
-/* the native date input is kept (for its picker and change event) but hidden under the
-   weekday button, which opens it via showPicker() */
-header .datewrap { position: relative; }
+/* date nav and filters are visually grouped; groups are separated by a wider gap */
+header .group { display: flex; align-items: center; gap: 4px; }
+header .group + .group, header .group + button { margin-left: 10px; }
 header .datelabel { font-weight: 600; min-width: 130px; text-align: center; }
-#datepick { position: absolute; left: 0; bottom: 0; width: 100%; height: 0; opacity: 0; border: 0; padding: 0; pointer-events: none; }
-header .who { color: var(--muted); font-size: 12px; }
+header .who { color: var(--muted); font-size: 12px; padding: 4px 6px; white-space: nowrap; }
 #status { color: var(--muted); font-size: 12px; min-width: 70px; }
 #freeat.active { border-color: var(--accent); color: var(--accent); }
 
@@ -193,6 +197,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     border-right: 3px solid var(--mine);
     opacity: 0.6;
 }
+#grid td.busy.mine .rsz.l { right: auto; left: 0; border-right: none; border-left: 3px solid var(--mine); }
 #grid td.busy.mine .rsz:hover { opacity: 1; }
 #grid td.busy.mine .shrinkcover {
     position: absolute;
@@ -202,6 +207,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     background: var(--bg);
     border-left: 3px solid var(--accent);
 }
+#grid td.busy.mine .shrinkcover.l { right: auto; left: 0; border-left: none; border-right: 3px solid var(--accent); }
 #grid td.past { opacity: 0.45; }
 #grid col.nowcol { background: color-mix(in srgb, var(--now) 7%, transparent); }
 #grid col.selcol { background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -224,6 +230,16 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     gap: 8px;
 }
 #pop .head { font-weight: 700; }
+/* in-app calendar (the native date picker can't be themed or set to Monday-first) */
+#pop .calhead { display: flex; align-items: center; gap: 6px; }
+#pop .calhead .head { flex: 1; text-align: center; }
+#pop .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+#pop .cal .dow { color: var(--muted); font-size: 11px; text-align: center; padding: 2px 0; }
+#pop .cal button { padding: 5px 0; font-size: 13px; border-color: transparent; background: none; }
+#pop .cal button:hover { background: var(--free-hover); }
+#pop .cal button.other { color: var(--muted); opacity: .6; }
+#pop .cal button.today { border-color: var(--now); }
+#pop .cal button.sel { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 #pop img.thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; }
 #pop .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 #pop .desc { max-height: 5.5em; overflow-y: auto; }
@@ -274,9 +290,9 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 #pop label.chk input { margin: 0; }
 #p-count { max-width: 70px; }
 
-/* amenity filter dropdown */
-#amenfilter { position: relative; }
-#amenfilter summary {
+/* header dropdowns (amenity filter, hamburger menu) */
+.dd { position: relative; }
+.dd summary {
     list-style: none;
     cursor: pointer;
     background: var(--panel);
@@ -285,8 +301,8 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     padding: 5px 10px;
     user-select: none;
 }
-#amenfilter[open] summary, #amenfilter summary.active { border-color: var(--accent); color: var(--accent); }
-#amenfilter .menu {
+.dd[open] summary, .dd summary.active { border-color: var(--accent); color: var(--accent); }
+.dd .menu {
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
@@ -300,7 +316,7 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     max-height: 320px;
     overflow-y: auto;
 }
-#amenfilter .menu label {
+.dd .menu label {
     display: flex;
     align-items: center;
     gap: 7px;
@@ -309,7 +325,11 @@ table#grid { border-collapse: collapse; min-width: 100%; }
     cursor: pointer;
     white-space: nowrap;
 }
-#amenfilter .menu label:hover { background: var(--free-hover); }
+.dd .menu label:hover { background: var(--free-hover); }
+
+#menu .menu { left: auto; right: 0; display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+#menu .menu button { text-align: left; }
+#menu summary { padding: 5px 9px; }
 
 /* map view */
 #mapwrap { flex: 1; overflow: auto; display: none; flex-direction: column; }
@@ -333,11 +353,9 @@ table#grid { border-collapse: collapse; min-width: 100%; }
 }
 @media (max-width: 700px) {
     header { gap: 5px; padding: 6px 8px; font-size: 13px; }
-    header button, header input, header select, #amenfilter summary { padding: 4px 8px; }
+    header button, header input, header select, .dd summary { padding: 4px 8px; }
     header .datelabel { min-width: 0; }
-    header .who { display: none; }
     #status { display: none; }
-    #refresh { display: none; } /* auto-refresh covers it; taps go to pull-to-refresh */
     #grid td.room, #grid th.room {
         min-width: 0;
         max-width: 38vw;
