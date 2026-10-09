@@ -62,31 +62,54 @@ form.onsubmit = async (e) => {
         if (!res.ok) throw new Error(json.meta?.message || "Login failed");
         auth = { token: json.data.access_token, account_id: json.data.account_id, expire_at: json.data.expire_at, email };
         $("l-pass").value = "";
-
-        const orgs = (await robin("/me/organizations")).data.filter((o) => !o.disabled_at);
-        if (!orgs.length) throw new Error("Your account belongs to no Robin organization");
-        const org = orgs.length === 1 ? orgs[0] : await choose("Choose an organization", orgs);
-        const locs = (await robin(`/organizations/${org.id}/locations?per_page=100`, org.id)).data;
-        if (!locs.length) throw new Error(`${org.name} has no locations`);
-        const fallbackTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-        await post({
-            decision: "approve",
-            token: auth.token,
-            account_id: auth.account_id,
-            email: auth.email,
-            expire_at: auth.expire_at,
-            org_id: +org.id,
-            org_name: org.name,
-            locations: locs.map((l) => ({ id: +l.id, name: l.name, tz: l.time_zone || fallbackTz })),
-        });
+        await approve();
     } catch (err) {
-        form.hidden = false;
-        $("site").hidden = true;
-        $("l-err").textContent = err.message;
+        fail(err);
         $("l-go").disabled = false;
     }
 };
+
+$("l-usetoken").onclick = () => { $("l-passform").hidden = true; $("l-tokform").hidden = false; $("l-err").textContent = ""; $("l-token").focus(); };
+$("l-usepass").onclick = () => { $("l-tokform").hidden = true; $("l-passform").hidden = false; $("l-err").textContent = ""; $("l-email").focus(); };
+$("l-tokgo").onclick = async () => {
+    $("l-err").textContent = "";
+    $("l-tokgo").disabled = true;
+    try {
+        auth = await robinTokenLogin($("l-token").value);
+        $("l-token").value = "";
+        await approve();
+    } catch (err) {
+        fail(err);
+        $("l-tokgo").disabled = false;
+    }
+};
+
+// With `auth` set (by password or token): pick the org, collect its buildings, approve.
+async function approve() {
+    const orgs = (await robin("/me/organizations")).data.filter((o) => !o.disabled_at);
+    if (!orgs.length) throw new Error("Your account belongs to no Robin organization");
+    const org = orgs.length === 1 ? orgs[0] : await choose("Choose an organization", orgs);
+    const locs = (await robin(`/organizations/${org.id}/locations?per_page=100`, org.id)).data;
+    if (!locs.length) throw new Error(`${org.name} has no locations`);
+    const fallbackTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    await post({
+        decision: "approve",
+        token: auth.token,
+        account_id: auth.account_id,
+        email: auth.email,
+        expire_at: auth.expire_at,
+        org_id: +org.id,
+        org_name: org.name,
+        locations: locs.map((l) => ({ id: +l.id, name: l.name, tz: l.time_zone || fallbackTz })),
+    });
+}
+
+function fail(err) {
+    form.hidden = false;
+    $("site").hidden = true;
+    $("l-err").textContent = err.message;
+}
 
 $("l-deny").onclick = async () => {
     try { await post({ decision: "deny" }); } catch (err) { $("l-err").textContent = err.message; }

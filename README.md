@@ -38,6 +38,7 @@ caller's own token; no credentials are stored server-side.
 public/
   index.html   markup shell
   app.js       all application logic
+  token-login.js  paste-a-token sign-in, shared with the MCP consent page
   style.css    styles (light/dark via prefers-color-scheme)
   _headers     CSP + security headers
 worker.js      the /api/users directory proxy
@@ -48,6 +49,51 @@ Your Robin password is sent only to `api.robinpowered.com` (HTTP Basic, once, ov
 mint an access token, which lives in your browser's localStorage along with cached room
 data. A strict Content-Security-Policy (no inline script/style, allowlisted hosts only)
 backstops the whole thing.
+
+### Signing in without a password
+
+If you sign in to Robin with Google or another SSO provider you may have no Robin
+password at all, and you might simply prefer not to type one into a third-party site.
+Either way, pick **Sign in with an access token instead** on the login card and paste the
+token the Robin dashboard already uses:
+
+1. Sign in at [dashboard.robinpowered.com](https://dashboard.robinpowered.com) as usual.
+2. Open the browser's developer tools (F12), choose the **Network** tab and reload.
+3. Click any request to `api.robinpowered.com`, find the `Authorization` request header
+   and copy its value (`Access-Token …`). The prefix is optional; the app strips it.
+
+The token is checked against `GET /me` and then used exactly like one minted from a
+password: it lasts about two weeks, goes only to `api.robinpowered.com`, and cannot change
+your password. Robin offers no public "sign in with Google" for third-party apps (the
+dashboard's Google button goes through its own private backend), so this is the only path
+for SSO accounts.
+
+Password users who want to avoid typing it into any website can mint a token from a
+terminal and paste that instead:
+
+```bash
+curl -u you@example.com https://api.robinpowered.com/v1.0/auth/users \
+  -H 'Content-Type: application/json' -d '{"remember_me":true}'
+```
+
+The same option exists on the MCP consent page.
+
+### Checking that the site runs this code
+
+There is no build step, so the files served by robin.aok.site are byte-for-byte the files
+in `public/`. Anyone can verify that against a checkout:
+
+```bash
+for f in index.html app.js token-login.js authorize.js style.css; do
+  diff <(curl -s "https://robin.aok.site/${f/index.html/}") "public/$f" && echo "$f ok"
+done
+```
+
+and the live `Content-Security-Policy` header (`curl -sI https://robin.aok.site/`) shows
+that the page can only talk to itself and Robin's two API hosts. This proves what is
+served *right now*, not what will be served tomorrow; if that matters to you, clone the
+repo and serve `public/` yourself (`wrangler dev`, or any static file server for
+everything but the people directory, which needs the Worker's `/api/users` proxy).
 
 ## Development
 

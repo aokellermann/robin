@@ -120,6 +120,16 @@ probing; Robin's public docs don't cover most of this.
 
 ## App architecture
 
+- Two logins: email+password (`POST /auth/users`) and **paste-a-token** (`public/token-login.js`,
+  shared by `app.js` and the consent page's `authorize.js`): the user copies the dashboard's
+  own `Access-Token` from the DevTools Network tab (added 2026-10-09 for Google/SSO users who
+  have no Robin password). `parseRobinToken` accepts a bare token, `Access-Token x`, a whole
+  `Authorization:` header line, or the dashboard's `{"access_token","expire_at"}` JSON;
+  `robinTokenLogin` validates it with `GET /me` (`data.id` = account_id, `data.primary_email.email`).
+  `/me` does not report expiry, so `expire_at` is assumed 14 days out and the usual 401 → logout
+  handles earlier expiry. Robin has no third-party Google sign-in: the dashboard's Google button
+  is a Google OAuth redirect to `dashboard.robinpowered.com/api/oauth/google`, exchanged for a
+  Robin token by the dashboard's private `/api/sso/google` backend, not by the public API.
 - Auth token + account_id stored in `localStorage["robin.auth"]`; the chosen org/building in
   `localStorage["robin.site"]` (`{org_id, org_name, loc_id, loc_name, tz}` — auto-picked when the
   account has exactly one, otherwise a picker card is shown; the building button in the header's
@@ -171,7 +181,12 @@ own Robin account.
   module memory for 10 min per org/location. Time parsing: `YYYY-MM-DDTHH:MM` is building-local
   (the chosen location's `tz`, via Intl offset math), anything with an offset/Z is taken as-is; output is always
   Robin's millisecond-free `±HH:MM` format. Robin API rules above apply unchanged.
-- Local testing: `wrangler dev --port 8799 --local-protocol https` (8787 is often taken by
+- Local testing: `wrangler dev --port 8799 --local-protocol https`. A Playwright script
+  driving both logins and the whole OAuth flow (register → consent with a pasted token → code
+  exchange → `/mcp` call) takes ~1 min to write; import Playwright from the bun global install
+  (`~/.cache/.bun/install/global/node_modules/playwright/index.mjs`, browsers in
+  `~/.cache/ms-playwright`), since a bare `import "playwright"` under `bun run` resolves a newer
+  cached copy with no browser. Port 8787 is often taken by
   another repo's dev server; **https is required** or the metadata is published as `http://`
   and the resource lookup 404s). Register a client with `POST /oauth/register`, GET
   `/authorize?...` with PKCE and a cookie jar, POST the approve JSON with the same jar, exchange

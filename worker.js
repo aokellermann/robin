@@ -68,6 +68,7 @@ function consentPage(details, handle) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect to Robin Rooms</title>
 <link rel="stylesheet" href="/style.css">
+<script src="/token-login.js" defer></script>
 <script src="/authorize.js" defer></script>
 </head>
 <body>
@@ -80,10 +81,28 @@ function consentPage(details, handle) {
        The server keeps only the resulting Robin access token (encrypted, valid about two weeks) so it can act for you.
        You can disconnect at any time from your Claude settings.</p>
     <form id="form" data-handle="${esc(handle)}">
-        <input id="l-email" type="email" placeholder="Email" autocomplete="username" required>
-        <input id="l-pass" type="password" placeholder="Robin password" autocomplete="current-password" required>
+        <div class="lform" id="l-passform">
+            <input id="l-email" type="email" placeholder="Email" autocomplete="username">
+            <input id="l-pass" type="password" placeholder="Robin password" autocomplete="current-password">
+            <button class="primary" id="l-go" type="submit">Sign in and allow</button>
+            <button class="link" id="l-usetoken" type="button">Sign in with an access token instead</button>
+            <p class="muted">For Google / SSO accounts without a Robin password, or if you'd rather not type yours here.</p>
+        </div>
+        <div class="lform" id="l-tokform" hidden>
+            <textarea id="l-token" rows="3" placeholder="Paste your Robin access token" autocomplete="off" spellcheck="false"></textarea>
+            <button class="primary" id="l-tokgo" type="button">Allow with token</button>
+            <details class="help">
+                <summary>How to get your token</summary>
+                <ol>
+                    <li>Sign in at <a href="https://dashboard.robinpowered.com" target="_blank" rel="noopener">dashboard.robinpowered.com</a> as usual (Google sign-in works).</li>
+                    <li>Open the browser's developer tools (<kbd>F12</kbd>), choose the <b>Network</b> tab and reload the page.</li>
+                    <li>Click any request to <code>api.robinpowered.com</code>, find the <code>Authorization</code> request header and copy its value (<code>Access-Token …</code>) here.</li>
+                </ol>
+                <p>The token is what the dashboard itself uses; it lasts about two weeks and can't change your password.</p>
+            </details>
+            <button class="link" id="l-usepass" type="button">Sign in with email and password instead</button>
+        </div>
         <p class="err" id="l-err"></p>
-        <button class="primary" id="l-go" type="submit">Sign in and allow</button>
         <button id="l-deny" type="button">Deny</button>
     </form>
     <div id="site" hidden>

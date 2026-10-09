@@ -81,6 +81,24 @@ async function doLogin() {
     }
 }
 
+$("l-usetoken").onclick = () => { $("l-passform").hidden = true; $("l-tokform").hidden = false; $("l-err").textContent = ""; $("l-token").focus(); };
+$("l-usepass").onclick = () => { $("l-tokform").hidden = true; $("l-passform").hidden = false; $("l-err").textContent = ""; $("l-email").focus(); };
+$("l-tokgo").onclick = doTokenLogin;
+async function doTokenLogin() {
+    $("l-err").textContent = "";
+    $("l-tokgo").disabled = true;
+    try {
+        auth = await robinTokenLogin($("l-token").value);
+        $("l-token").value = "";
+        localStorage.setItem("robin.auth", JSON.stringify(auth));
+        start();
+    } catch (e) {
+        $("l-err").textContent = e.message;
+    } finally {
+        $("l-tokgo").disabled = false;
+    }
+}
+
 function logout() {
     localStorage.removeItem("robin.auth");
     auth = null;

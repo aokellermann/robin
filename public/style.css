@@ -83,6 +83,19 @@ input, select {
 }
 #login h1, #site h1 { font-size: 18px; margin: 0 0 6px; }
 #login .err { color: var(--danger); min-height: 1.2em; margin: 0; }
+#login .lform { display: flex; flex-direction: column; gap: 10px; }
+#login .lform[hidden] { display: none; }
+#login .lform .muted { color: var(--muted); font-size: 12px; margin: 0; }
+#login textarea { font: inherit; font-family: monospace; font-size: 12px; resize: vertical; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+button.link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; text-align: left; }
+button.link:hover { text-decoration: underline; }
+#login details.help { font-size: 13px; }
+#login details.help summary { cursor: pointer; color: var(--muted); }
+#login details.help ol { padding-left: 20px; margin: 8px 0; }
+#login details.help li { margin: 4px 0; }
+#login details.help p { margin: 6px 0; color: var(--muted); font-size: 12px; }
+#login details.help pre { font-size: 11px; white-space: pre-wrap; word-break: break-all; margin: 0; padding: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+#login details.help code, #login details.help kbd { font-size: 12px; }
 #site[hidden] { display: none; }
 #site-list { display: flex; flex-direction: column; gap: 8px; }
 #site-list button { text-align: left; padding: 10px 12px; }
