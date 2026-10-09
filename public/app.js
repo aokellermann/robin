@@ -241,7 +241,8 @@ function visibleSpaces() {
     const minCap = +$("mincap").value;
     return spaces.filter((s) =>
         (!minCap || (s.capacity || 0) >= minCap) &&
-        [...amenChecked].every((a) => (s.amenities || []).includes(a)));
+        [...amenChecked].every((a) => (s.amenities || []).includes(a)))
+        .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true })); // grid rows: Z→A
 }
 
 function buildAmenMenu() {
