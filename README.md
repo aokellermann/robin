@@ -88,3 +88,7 @@ OAuth 2.1 with PKCE, dynamic client registration and Client ID Metadata Document
 [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider)
 (the Worker's only dependency). Discovery: `/.well-known/oauth-authorization-server` and
 `/.well-known/oauth-protected-resource/mcp`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
