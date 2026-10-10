@@ -10,7 +10,6 @@
 import { OAuthProvider, OAuthError, AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import { handleMcp } from "./mcp.js";
 
-const ORIGIN = "https://robin.aok.site";
 const ROBIN = "https://api.robinpowered.com/v1.0";
 const GRAPHQL = "https://federation-gateway.robinpowered.com/graphql";
 const USERS_QUERY_HASH = "5a3d5281feda79e8939c7fcfa5d88f77d64618e4417529ab75bcb7a833fd3163";
@@ -57,7 +56,7 @@ async function apiUsers(req) {
 }
 
 // ---------- /authorize: consent page with client-side Robin login ----------
-function consentPage(details, handle) {
+function consentPage(details, handle, host) {
     const who = details.clientDomain
         ? `<strong>${esc(details.clientName)}</strong> (${esc(details.clientDomain)})`
         : `<strong>${esc(details.clientName)}</strong> <span class="muted">(self-registered, name unverified)</span>`;
@@ -74,7 +73,7 @@ function consentPage(details, handle) {
 <body>
 <div id="login" class="consent">
     <h1>Connect ${who} to Robin</h1>
-    <p>Lets it list rooms and book, edit and cancel room bookings <em>as you</em>, through robin.aok.site.
+    <p>Lets it list rooms and book, edit and cancel room bookings <em>as you</em>, through ${esc(host)}.
        Access goes to <strong>${esc(details.redirectHost)}</strong>.</p>
     ${details.redirectIsLoopback ? `<p class="warn">This sends access to an app on your computer. Continue only if you just started connecting from it.</p>` : ""}
     <p class="muted">Your password is sent from this page straight to api.robinpowered.com and never to this server.
@@ -125,7 +124,7 @@ async function authorizeGet(req, env) {
     consent.headers.set("content-security-policy", PAGE_CSP);
     consent.headers.set("referrer-policy", "no-referrer");
     consent.headers.set("cache-control", "no-store");
-    return new Response(consentPage(details, consent.handle), { headers: consent.headers });
+    return new Response(consentPage(details, consent.handle, new URL(req.url).host), { headers: consent.headers });
 }
 
 // The page posts JSON: {handle, decision, token, account_id, email, expire_at, org_id,
@@ -199,7 +198,23 @@ const apiHandler = {
     },
 };
 
-export default new OAuthProvider({
+// The site's origin is whatever the request came in on (custom domain, workers.dev, local
+// dev), so nothing about the deployment is hardcoded. The provider needs the canonical
+// resource URL up front, so one instance is built per origin seen by this isolate.
+const providers = new Map();
+function provider(origin) {
+    let p = providers.get(origin);
+    if (!p) providers.set(origin, (p = makeProvider(origin)));
+    return p;
+}
+
+export default {
+    fetch(req, env, ctx) {
+        return provider(new URL(req.url).origin).fetch(req, env, ctx);
+    },
+};
+
+const makeProvider = (ORIGIN) => new OAuthProvider({
     apiRoute: "/mcp",
     apiHandler,
     defaultHandler,

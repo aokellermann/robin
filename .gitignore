@@ -1,2 +1,4 @@
 .wrangler/
 node_modules/
+# per-deployment configs (wrangler deploy -c wrangler.<x>.jsonc)
+wrangler.*.jsonc

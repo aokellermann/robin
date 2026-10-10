@@ -1,7 +1,7 @@
 # robin
 
 A fast room-booking frontend for [Robin](https://robinpowered.com), replacing the slow
-dashboard.robinpowered.com UI. Live at [robin.aok.site](https://robin.aok.site).
+dashboard.robinpowered.com UI.
 
 Sign in with your Robin account and you get a day grid of every bookable room in your
 building — rooms × 15-minute slots — that loads in about a second. It works with any Robin
@@ -80,16 +80,16 @@ The same option exists on the MCP consent page.
 
 ### Checking that the site runs this code
 
-There is no build step, so the files served by robin.aok.site are byte-for-byte the files
-in `public/`. Anyone can verify that against a checkout:
+There is no build step, so the files served by a deployment are byte-for-byte the files
+in `public/`. Anyone can verify that against a checkout (replace the host):
 
 ```bash
 for f in index.html app.js token-login.js authorize.js style.css; do
-  diff <(curl -s "https://robin.aok.site/${f/index.html/}") "public/$f" && echo "$f ok"
+  diff <(curl -s "https://<host>/${f/index.html/}") "public/$f" && echo "$f ok"
 done
 ```
 
-and the live `Content-Security-Policy` header (`curl -sI https://robin.aok.site/`) shows
+and the live `Content-Security-Policy` header (`curl -sI https://<host>/`) shows
 that the page can only talk to itself and Robin's two API hosts. This proves what is
 served *right now*, not what will be served tomorrow; if that matters to you, clone the
 repo and serve `public/` yourself (`wrangler dev`, or any static file server for
@@ -98,9 +98,22 @@ everything but the people directory, which needs the Worker's `/api/users` proxy
 ## Development
 
 ```bash
+bun install
 wrangler dev --port 8787   # local dev
-wrangler deploy            # deploy
 ```
+
+### Deploying your own
+
+The code has no idea where it runs: the Worker takes its origin from each request, so the
+OAuth issuer, the MCP resource URL and the consent page all follow whatever domain you put
+it on. To host an instance:
+
+1. `wrangler kv namespace create OAUTH_KV` and put the id into `wrangler.jsonc`
+   (replace the placeholder), or copy the file to `wrangler.<x>.jsonc` (gitignored) with
+   your values and pass it with `-c`.
+2. `wrangler deploy` (or `wrangler deploy -c wrangler.<x>.jsonc`). Without `routes` it lands
+   on `robin.<your-subdomain>.workers.dev`; add a custom domain via `routes` to use your own.
+3. Point MCP clients at `https://<your host>/mcp`.
 
 `CLAUDE.md` documents the reverse-engineered Robin API surface (auth, booking via
 `POST /events` with the room's resource-calendar mailbox, recurrence semantics, the atlas
@@ -109,12 +122,12 @@ was hard-won and none of it is in Robin's public docs.
 
 ## MCP server (Claude Desktop, claude.ai, any MCP client)
 
-The Worker is also a remote MCP server at `https://robin.aok.site/mcp`, so Claude can list
+The Worker is also a remote MCP server at `https://<host>/mcp`, so Claude can list
 rooms and book, edit and cancel bookings for you. Add it as a custom connector (Claude
 Desktop / claude.ai → Settings → Connectors → Add custom connector → that URL). Anyone with a
 Robin account can use it; nothing is tied to one org or person.
 
-Connecting opens `/authorize` on robin.aok.site. **Your Robin password never reaches this
+Connecting opens `/authorize` on the deployment. **Your Robin password never reaches this
 server**: the page logs in to `api.robinpowered.com` from your browser (same as the app
 itself) and hands the Worker only the resulting Robin access token, which it verifies
 against Robin and stores encrypted in Workers KV, bound to the OAuth grant issued to your

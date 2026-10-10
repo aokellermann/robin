@@ -3,7 +3,7 @@
 Fast generic room-booking frontend for Robin (robinpowered.com), replacing the slow
 dashboard.robinpowered.com UI. Works with any Robin org/building — the user's organization and
 location are discovered from the API after login. Static single-page app served by a Cloudflare
-Worker at robin.aok.site — the browser talks to Robin's REST API directly (CORS is `*`). The
+Worker — the browser talks to Robin's REST API directly (CORS is `*`). The
 Worker has one server route, `GET /api/users` (`worker.js`): a proxy for the GraphQL people
 directory, which is CORS-allowlisted to Robin's own dashboards and so unreachable from the
 browser. It forwards the caller's own `Authorization`/`Tenant-Id` headers upstream (persisted
@@ -17,15 +17,35 @@ org, buildings, floors, rooms or desks in tracked files (README, CLAUDE.md, code
 tool descriptions, tests): no real desk codes, room names, building names, floor numbers,
 org ids, account ids or email addresses. Use obviously generic examples (desk `3A1`, "Room
 A") and describe room types by Robin's `type` values, not by what the author's building has.
-Deployment config (`robin.aok.site`, the KV namespace id in `wrangler.jsonc`) is fine; the
-Cloudflare account itself (plan, billing, quotas) is not.
+The author's deployment (domain, Cloudflare account, KV namespace id) is not tracked either: it
+lives in the gitignored `wrangler.prod.jsonc`. Tracked files must never mention the domain or
+the account name; `wrangler.jsonc` is the generic template with a KV id placeholder.
 
 ## Commands
 
 ```bash
-wrangler dev --port 8787   # local dev
-wrangler deploy            # deploy to the personal "aok" Cloudflare account
+wrangler dev --port 8787                # local dev (origin = http://localhost:8787)
+wrangler deploy                         # generic deploy to <name>.<subdomain>.workers.dev
+wrangler deploy -c wrangler.prod.jsonc  # the author's deployment (untracked config)
 ```
+
+Nothing about the site is hardcoded: the Worker derives its origin (OAuth issuer, resource
+metadata, consent-page text) from each request's URL, building one `OAuthProvider` per origin
+seen. `wrangler.jsonc` is the generic template (KV id placeholder, workers.dev route). The
+author's config, including `account_id` (so non-interactive deploys from Claude Code's Bash
+tool work without `CLOUDFLARE_ACCOUNT_ID`) and the KV namespace, is in `wrangler.prod.jsonc`,
+gitignored via `wrangler.*.jsonc`; the deployed URL is deliberately not written down in the
+repo (ask the user or read the deploy output). Since 2026-10-09 it is on the workers.dev
+subdomain with no custom domain. Note that `wrangler dev` with a custom-domain route rewrites
+request hosts to that route, so plain http dev then fails the OAuth library's loopback check;
+use `--local-protocol https` in that case.
+
+Wrangler never detaches a custom domain: dropping `routes` leaves it serving the Worker. Use
+the API (`DELETE /accounts/{id}/workers/domains/{domainId}`, listed via `GET .../workers/domains`,
+bearer = `oauth_token` in `~/.config/.wrangler/config/default.toml`). To take the site offline
+temporarily, deploy a one-file stub Worker with the same `name` (no assets or KV) that
+returns 503 from a scratch directory; a normal deploy restores everything (KV and OAuth
+grants are untouched by the stub).
 
 No build step, no dependencies (so Dependabot in `.github/dependabot.yml` only watches github-actions, a no-op until workflows exist). `public/`: `index.html` (markup shell), `app.js` (all logic),
 `style.css`, `_headers` (CSP + security headers — script/style must stay in external files; the
@@ -147,7 +167,7 @@ probing; Robin's public docs don't cover most of this.
 
 ## MCP server (`/mcp`) and OAuth
 
-Added 2026-10-08 so Claude Desktop / claude.ai (custom connector, URL `https://robin.aok.site/mcp`)
+Added 2026-10-08 so Claude Desktop / claude.ai (custom connector, URL `https://<host>/mcp`)
 and any other MCP client can book rooms. Multi-user by design: each person connects with their
 own Robin account.
 

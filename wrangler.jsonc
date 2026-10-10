@@ -3,19 +3,18 @@
     "compatibility_date": "2026-10-09",
     "compatibility_flags": ["global_fetch_strictly_public"],
     "main": "worker.js",
-    "routes": [
-        {
-            "pattern": "robin.aok.site",
-            "custom_domain": true
-        }
-    ],
     "assets": {
         "directory": "./public"
     },
+    // Deploys to <name>.<your-subdomain>.workers.dev. Create a KV namespace
+    // (`wrangler kv namespace create OAUTH_KV`) and put its id here; add `routes` for a
+    // custom domain. Or copy this file to wrangler.<x>.jsonc (gitignored) with your values
+    // and run `wrangler deploy -c wrangler.<x>.jsonc`. The Worker derives its public URL
+    // from each request, so no origin is configured anywhere.
     "kv_namespaces": [
         {
             "binding": "OAUTH_KV",
-            "id": "526c7be479d541b6be6eea90220c6819"
+            "id": "<your KV namespace id>"
         }
     ]
 }
