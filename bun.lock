@@ -5,11 +5,11 @@
     "": {
       "name": "robin",
       "dependencies": {
-        "@cloudflare/workers-oauth-provider": "^1.2.3",
+        "@cloudflare/workers-oauth-provider": "^1.2.4",
       },
     },
   },
   "packages": {
-    "@cloudflare/workers-oauth-provider": ["@cloudflare/workers-oauth-provider@1.2.3", "", {}, "sha512-40eGeA3DnTOEl2ijHYY5Z9yNIf0fdjgomoaA6GHPo4FyKQw0oXPuy4GVjTE/uNfS/MoFAvzsuVBRwTPKUki4hA=="],
+    "@cloudflare/workers-oauth-provider": ["@cloudflare/workers-oauth-provider@1.2.4", "", {}, "sha512-ayo6Z8DBHdAxwDpplFU8BrEoxoSn6wNo+E7ypTENRHUOc8R89A8/+nZ+a8pMZjjXzF0JXfpYXhw/7qqG+DC18Q=="],
   }
 }
