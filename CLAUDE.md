@@ -52,6 +52,9 @@ No build step, no dependencies (so Dependabot in `.github/dependabot.yml` only w
 CSP has no `unsafe-inline`, so inline `style=` attributes in JS-generated HTML are blocked too;
 use classes or the `hidden` attribute).
 
+Search engines never index it: `X-Robots-Tag: noindex, nofollow, noarchive` comes from
+`_headers` for the static files and from the `fetch` wrapper in `worker.js` for everything else.
+
 ## Robin API notes (hard-won, verify before "fixing")
 
 Base: `https://api.robinpowered.com/v1.0`. Discovered by watching the dashboard's requests plus
