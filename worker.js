@@ -208,9 +208,15 @@ function provider(origin) {
     return p;
 }
 
+// Every Worker response is kept out of search engines (the static files get the same header
+// from public/_headers). Copied, since a fetched or library-built response may have immutable
+// headers.
 export default {
-    fetch(req, env, ctx) {
-        return provider(new URL(req.url).origin).fetch(req, env, ctx);
+    async fetch(req, env, ctx) {
+        const res = await provider(new URL(req.url).origin).fetch(req, env, ctx);
+        const out = new Response(res.body, res);
+        out.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+        return out;
     },
 };
 
